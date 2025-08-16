@@ -22,7 +22,10 @@ import BarChartIcon from '@mui/icons-material/BarChart';
 import SettingsIcon from '@mui/icons-material/Settings';
 
 
+import type { User } from '../services/api';
+
 interface DashboardProps {
+  user: User | null;
   onLogout: () => void;
   onCategoryClick: (category: string) => void;
 }
@@ -86,7 +89,7 @@ const categories = [
   }
 ];
 
-const Dashboard: React.FC<DashboardProps> = ({ onLogout, onCategoryClick }) => {
+const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onCategoryClick }) => {
   return (
     <Box
       sx={{
@@ -141,20 +144,47 @@ const Dashboard: React.FC<DashboardProps> = ({ onLogout, onCategoryClick }) => {
               LMS – KARE
             </Typography>
           </Box>
-          <Button
-            color="primary"
-            variant="outlined"
-            onClick={onLogout}
-            sx={{
-              textTransform: 'none',
-              fontWeight: 600,
-              borderRadius: 2,
-              px: 3,
-              fontSize: 15
-            }}
-          >
-            Logout
-          </Button>
+          
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            {user && (
+              <Box sx={{ textAlign: 'right', mr: 2 }}>
+                <Typography
+                  variant="subtitle2"
+                  sx={{
+                    fontWeight: 600,
+                    color: '#475569',
+                    fontSize: 14
+                  }}
+                >
+                  Welcome, {user.firstName} {user.lastName}
+                </Typography>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    color: '#64748b',
+                    fontSize: 12,
+                    textTransform: 'capitalize'
+                  }}
+                >
+                  {user.role}
+                </Typography>
+              </Box>
+            )}
+            <Button
+              color="primary"
+              variant="outlined"
+              onClick={onLogout}
+              sx={{
+                textTransform: 'none',
+                fontWeight: 600,
+                borderRadius: 2,
+                px: 3,
+                fontSize: 15
+              }}
+            >
+              Logout
+            </Button>
+          </Box>
         </Toolbar>
       </AppBar>
 

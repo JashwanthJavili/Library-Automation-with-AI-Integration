@@ -6,10 +6,13 @@ import {
   Typography,
   Checkbox,
   FormControlLabel,
+  Alert,
+  CircularProgress,
 } from '@mui/material';
+import { apiService } from '../services/api';
 
 interface LoginPageProps {
-  onLogin: (username: string) => void;
+  onLogin: (username: string, userData: any) => void;
 }
 
 const IMAGE_URL = 'https://www.kalasalingam.ac.in/wp-content/uploads/2021/06/IMG_1793-scaled.jpg';
@@ -21,14 +24,26 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (username === 'admin' && password === 'password') {
-      onLogin(username);
-    } else {
-      setError('Invalid username or password.');
+    setLoading(true);
+
+    try {
+      const response = await apiService.login({ username, password });
+      if (response.success && response.data) {
+        apiService.setToken(response.data.token);
+        onLogin(username, response.data.user);
+      } else {
+        setError(response.message || 'Login failed');
+      }
+    } catch (error: any) {
+      console.error('Login error:', error);
+      setError(error.message || 'Login failed. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -180,6 +195,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
               type="submit"
               variant="contained"
               fullWidth
+              disabled={loading}
               sx={{
                 mt: 1,
                 py: 1.3,
@@ -191,7 +207,11 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                 ':hover': { bgcolor: '#174185' }
               }}
             >
-              Login
+              {loading ? (
+                <CircularProgress size={24} color="inherit" />
+              ) : (
+                'Login'
+              )}
             </Button>
           </form>
         </Box>

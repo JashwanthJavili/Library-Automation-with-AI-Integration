@@ -14,10 +14,13 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  CircularProgress,
+  Snackbar
 } from '@mui/material';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import LockIcon from '@mui/icons-material/Lock';
+import { apiService } from '../services/api';
 
 const LOGO_URL = '/src/assets/Kare_Logo.png';
 
@@ -30,12 +33,55 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
   const [showReturnDialog, setShowReturnDialog] = useState(false);
   const [returnPass, setReturnPass] = useState('');
   const [returnError, setReturnError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
+    open: false,
+    message: '',
+    severity: 'success'
+  });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!regNo.trim()) return;
-    setSubmitMsg('Not connected to database. Try again later.');
-    setRegNo('');
+    
+    setLoading(true);
+    setSubmitMsg('');
+    
+    try {
+      const response = await apiService.recordEntry({
+        registrationNumber: regNo.trim(),
+        method: 'manual_entry',
+        purpose: 'study',
+        location: 'main_gate'
+      });
+      
+      if (response.success) {
+        setSubmitMsg(`Entry recorded successfully for ${response.data?.entry?.user?.firstName} ${response.data?.entry?.user?.lastName}`);
+        setSnackbar({
+          open: true,
+          message: 'Entry recorded successfully!',
+          severity: 'success'
+        });
+        setRegNo('');
+      } else {
+        setSubmitMsg(response.message || 'Failed to record entry');
+        setSnackbar({
+          open: true,
+          message: response.message || 'Failed to record entry',
+          severity: 'error'
+        });
+      }
+    } catch (error: any) {
+      console.error('Entry error:', error);
+      setSubmitMsg(error.message || 'Failed to record entry. Please try again.');
+      setSnackbar({
+        open: true,
+        message: error.message || 'Failed to record entry. Please try again.',
+        severity: 'error'
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const openReturnDialog = () => setShowReturnDialog(true);
@@ -144,6 +190,7 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
                 color="primary"
                 type="submit"
                 fullWidth
+                disabled={loading}
                 sx={{
                   py: 1.2,
                   fontWeight: 700,
@@ -155,7 +202,11 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
                   mt: 1
                 }}
               >
-                Submit
+                {loading ? (
+                  <CircularProgress size={24} color="inherit" />
+                ) : (
+                  'Submit'
+                )}
               </Button>
             </form>
 
@@ -187,6 +238,22 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
           <Button onClick={handleReturnConfirm} variant="contained">Confirm</Button>
         </DialogActions>
       </Dialog>
+
+      {/* Snackbar for notifications */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
+          severity={snackbar.severity}
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
      );
  };

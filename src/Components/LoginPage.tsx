@@ -6,7 +6,6 @@ import {
   Typography,
   Checkbox,
   FormControlLabel,
-  Avatar
 } from '@mui/material';
 
 interface LoginPageProps {
@@ -14,6 +13,7 @@ interface LoginPageProps {
 }
 
 const IMAGE_URL = 'https://www.kalasalingam.ac.in/wp-content/uploads/2021/06/IMG_1793-scaled.jpg';
+// If using Vite, logo path is usually "/src/assets/Kare_Logo.png"
 const LOGO_URL = '/src/assets/Kare_Logo.png';
 
 const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
@@ -36,61 +36,79 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     <Box
       sx={{
         minHeight: '100vh',
+        minWidth: '100vw',
+        height: '100vh',
         width: '100vw',
-        display: 'grid',
-        gridTemplateColumns: { xs: '1fr', md: '1.3fr 1fr' },
-        bgcolor: '#f5f6fa'
+        overflow: 'hidden',
+        display: 'flex',
+        position: 'fixed',   // Fixes page to viewport, no scrolling or shifting
+        inset: 0,
       }}
     >
-      {/* Left: Image and transparent logo */}
-      <Box sx={{ position: 'relative', display: { xs: 'none', md: 'block' } }}>
+      {/* LEFT: Full-image with transparent logo */}
+      <Box
+        sx={{
+          width: { xs: 0, md: '60%' },
+          height: '100%',
+          position: 'relative',
+          display: { xs: 'none', md: 'flex' },
+          alignItems: 'flex-start',
+          justifyContent: 'flex-start',
+          overflow: 'hidden',
+          background: `url(${IMAGE_URL}) center center/cover no-repeat`,
+        }}
+      >
         <Box
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            backgroundImage: `url(${IMAGE_URL})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center'
-          }}
-        />
-        <Avatar
+          component="img"
           src={LOGO_URL}
           alt="KARE Logo"
-          variant="rounded"
           sx={{
+            width: 70,
+            height: 70,
             position: 'absolute',
-            top: 24,
-            left: 24,
-            width: 56,
-            height: 56,
-            boxShadow: 2,
-            background: 'none', // No white background
+            top: 36,
+            left: 36,
+            zIndex: 2,
             p: 0,
-            borderRadius: 2
+            bgcolor: 'transparent', // Absolutely zero background
+            borderRadius: 2,
           }}
-          imgProps={{ referrerPolicy: 'no-referrer' }}
+          draggable={false}
         />
       </Box>
 
-      {/* Right: Heading and form */}
+      {/* RIGHT: Login form */}
       <Box
         sx={{
-          height: '100vh',
+          flex: 1,
+          height: '100%',
+          minWidth: 0,
+          background: '#fff',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          bgcolor: '#fff'
+          px: 3,
+          boxShadow: { md: '-2px 0 30px 2px #e3e3e3' },
         }}
       >
-        <Box sx={{ width: '100%', maxWidth: 380, mx: 'auto', px: 2 }}>
+        <Box
+          sx={{
+            width: '100%',
+            maxWidth: 380,
+            mx: 'auto',
+          }}
+        >
           <Typography
-            variant="h4"
+            variant="h3"
             align="center"
             sx={{
-              fontWeight: 800,
-              mb: 1.2,
-              letterSpacing: 1,
-              color: '#1e3a8a'
+              fontWeight: 900,
+              mb: 0.5,
+              letterSpacing: 2,
+              color: '#1e3a8a',
+              fontFamily: `'Inter','Roboto','Segoe UI',Arial,sans-serif`,
+              fontSize: { xs: 32, md: 36 },
             }}
           >
             LMS – KARE
@@ -99,10 +117,11 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
             variant="subtitle1"
             align="center"
             sx={{
-              fontWeight: 400,
-              color: '#606470',
+              color: '#475569',
+              fontWeight: 500,
+              fontSize: 20,
               mb: 4,
-              fontSize: 19
+              letterSpacing: 1,
             }}
           >
             Library Management System
@@ -112,7 +131,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
             <TextField
               label="Username"
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={e => setUsername(e.target.value)}
               fullWidth
               margin="normal"
               required
@@ -124,7 +143,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
               label="Password"
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={e => setPassword(e.target.value)}
               fullWidth
               margin="normal"
               required
@@ -135,12 +154,12 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
               control={
                 <Checkbox
                   checked={remember}
-                  onChange={(e) => setRemember(e.target.checked)}
+                  onChange={e => setRemember(e.target.checked)}
                   color="primary"
                 />
               }
               label="Remember Me"
-              sx={{ mt: 1, mb: 2 }}
+              sx={{ mt: 2, mb: 1.5 }}
             />
 
             {error && (
@@ -165,9 +184,10 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                 mt: 1,
                 py: 1.3,
                 fontWeight: 700,
-                letterSpacing: 0.5,
-                fontSize: 17,
+                fontSize: 18,
                 bgcolor: '#1e3a8a',
+                letterSpacing: 1,
+                boxShadow: 2,
                 ':hover': { bgcolor: '#174185' }
               }}
             >

@@ -239,7 +239,7 @@ router.post('/exit', [
 
     let duration = 0;
     if (entryRecord) {
-      duration = Math.round((exit.timestamp - entryRecord.timestamp) / (1000 * 60));
+      duration = (exit.timestamp - entryRecord.timestamp) / (1000 * 60); // Keep decimal precision
       // Mark entry as completed
       entryRecord.status = 'completed';
       await entryRecord.save();
@@ -262,7 +262,24 @@ router.post('/exit', [
           method,
           location,
           duration: duration,
-          timeSpent: `${Math.floor(duration / 60)}h ${duration % 60}m`
+          timeSpent: (() => {
+            if (duration < 1) {
+              return `${Math.round(duration * 60)}s`;
+            } else if (duration < 60) {
+              const mins = Math.floor(duration);
+              const secs = Math.round((duration % 1) * 60);
+              return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+            } else {
+              const hours = Math.floor(duration / 60);
+              const mins = Math.floor(duration % 60);
+              const secs = Math.round(((duration % 60) % 1) * 60);
+              if (secs > 0) {
+                return `${hours}h ${mins}m ${secs}s`;
+              } else {
+                return `${hours}h ${mins}m`;
+              }
+            }
+          })()
         }
       }
     });
@@ -392,6 +409,98 @@ router.get('/stats', protect, authorize('admin', 'librarian'), async (req, res) 
     res.status(500).json({
       success: false,
       message: 'Server error while fetching entry statistics'
+    });
+  }
+});
+
+// @desc    Get recent entry history (for analytics)
+// @route   GET /api/entry/history
+// @access  Private (admin, librarian)
+router.get('/history', protect, authorize('admin', 'librarian'), async (req, res) => {
+  try {
+    const { page = 1, limit = 50, type } = req.query;
+
+    // Build query
+    const query = {};
+    if (type && ['entry', 'exit'].includes(type)) {
+      query.entryType = type;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    let entries = await Entry.find(query)
+      .sort({ timestamp: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate('user', 'firstName lastName studentId department')
+      .populate('verifiedBy', 'firstName lastName');
+
+    // For exit entries, find the corresponding entry time
+    if (type === 'exit') {
+      try {
+        entries = await Promise.all(entries.map(async (exitEntry) => {
+          try {
+            // Find the most recent entry for this user before this exit
+            const correspondingEntry = await Entry.findOne({
+              user: exitEntry.user._id,
+              entryType: 'entry',
+              timestamp: { $lt: exitEntry.timestamp }
+            }).sort({ timestamp: -1 });
+
+            const exitObj = exitEntry.toObject ? exitEntry.toObject() : exitEntry;
+            
+            // Calculate duration if we have both entry and exit times
+            let calculatedDuration = 0;
+            if (correspondingEntry) {
+              calculatedDuration = (exitObj.timestamp - correspondingEntry.timestamp) / (1000 * 60);
+            }
+            
+            return {
+              ...exitObj,
+              entryTime: correspondingEntry ? correspondingEntry.timestamp : exitObj.timestamp,
+              duration: calculatedDuration,
+              timeSpent: calculatedDuration < 1 
+                ? `${Math.round(calculatedDuration * 60)}s`
+                : calculatedDuration < 60 
+                  ? `${Math.floor(calculatedDuration)}m ${Math.round((calculatedDuration % 1) * 60)}s`
+                  : `${Math.floor(calculatedDuration / 60)}h ${Math.floor(calculatedDuration % 60)}m ${Math.round(((calculatedDuration % 60) % 1) * 60)}s`
+            };
+          } catch (entryError) {
+            console.error('Error processing individual exit entry:', entryError);
+            const exitObj = exitEntry.toObject ? exitEntry.toObject() : exitEntry;
+            return {
+              ...exitObj,
+              entryTime: exitObj.timestamp
+            };
+          }
+        }));
+      } catch (mappingError) {
+        console.error('Error mapping exit entries:', mappingError);
+        // Fallback: return entries without entryTime modification
+      }
+    }
+
+    const total = await Entry.countDocuments(query);
+
+    res.json({
+      success: true,
+      data: {
+        entries,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(total / parseInt(limit)),
+          totalEntries: total,
+          hasNext: skip + entries.length < total,
+          hasPrev: parseInt(page) > 1
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get entry history error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching entry history'
     });
   }
 });

@@ -80,22 +80,22 @@ userSchema.virtual('fullName').get(function() {
 // Index for better query performance
 userSchema.index({ username: 1, email: 1, studentId: 1 });
 
-// Pre-save middleware to hash password
-userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
-  
-  try {
-    const salt = await bcrypt.genSalt(12);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (error) {
-    next(error);
-  }
-});
+// Pre-save middleware to hash password - DISABLED FOR DEVELOPMENT
+// userSchema.pre('save', async function(next) {
+//   if (!this.isModified('password')) return next();
+//   
+//   try {
+//     const salt = await bcrypt.genSalt(12);
+//     this.password = await bcrypt.hash(this.password, salt);
+//     next();
+//   } catch (error) {
+//     next(error);
+//   }
+// });
 
-// Method to compare password
+// Method to compare password - PLAIN TEXT COMPARISON FOR DEVELOPMENT
 userSchema.methods.comparePassword = async function(candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
+  return candidatePassword === this.password;
 };
 
 // Method to get public profile (without sensitive data)

@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react';
 import LoginPage from './Components/LoginPage';
 import Dashboard from './Components/Dashboard';
 import MainGateEntry from './Components/MainGateEntry';
+import Analytics from './Components/Analytics';
 import { apiService } from './services/api';
 import type { User } from './services/api';
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [page, setPage] = useState<'dashboard' | 'mainGateEntry'>('dashboard');
+  const [page, setPage] = useState<'dashboard' | 'mainGateEntry' | 'analytics'>('dashboard');
 
   // Check if user is already logged in on component mount
   useEffect(() => {
@@ -42,6 +43,8 @@ function App() {
   const handleCategoryClick = (category: string) => {
     if (category === 'Main Gate Entry/Exit') {
       setPage('mainGateEntry');
+    } else if (category === 'Analytics & Reports') {
+      setPage('analytics');
     }
     // Add further navigation logic here for other categories if needed
   };
@@ -56,6 +59,10 @@ function App() {
 
   if (page === 'mainGateEntry') {
     return <MainGateEntry onReturn={() => setPage('dashboard')} />;
+  }
+
+  if (page === 'analytics') {
+    return <Analytics onReturn={() => setPage('dashboard')} />;
   }
 
   return null; // fallback

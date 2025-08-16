@@ -79,7 +79,7 @@ const categories = [
     title: 'Analytics & Reports',
     icon: <BarChartIcon sx={{ fontSize: 48, color: '#228be6' }} />,
     description: 'Visualize library usage and generate reports.',
-    active: false
+    active: true
   },
   {
     title: 'Settings',

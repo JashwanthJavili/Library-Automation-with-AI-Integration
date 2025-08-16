@@ -44,6 +44,8 @@ export interface EntryRecord {
   location: 'main_gate' | 'side_entrance' | 'emergency_exit';
   purpose?: 'study' | 'research' | 'meeting' | 'event' | 'other';
   duration?: number;
+  timeSpent?: string;
+  entryTime?: string;
   notes?: string;
   status: 'active' | 'completed' | 'cancelled';
 }
@@ -182,6 +184,10 @@ class ApiService {
     if (endDate) params.append('endDate', endDate);
     
     return this.request(`/entry/stats?${params.toString()}`);
+  }
+
+  async getHistoricalEntries(limit: number = 50): Promise<ApiResponse<{ entries: EntryRecord[] }>> {
+    return this.request<{ entries: EntryRecord[] }>(`/entry/history?limit=${limit}&type=exit`);
   }
 
   // User management endpoints

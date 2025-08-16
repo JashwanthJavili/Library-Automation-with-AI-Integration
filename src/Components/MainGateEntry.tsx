@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
 import {
   Box,
-  AppBar,
-  Toolbar,
   Typography,
-  Avatar,
-  Card,
-  CardContent,
   TextField,
   Button,
+  Card,
+  CardContent,
+  AppBar,
+  Toolbar,
+  Avatar,
   InputAdornment,
   Alert,
+  Snackbar,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -18,6 +19,7 @@ import {
 } from '@mui/material';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import LockIcon from '@mui/icons-material/Lock';
+import { apiService } from '../services/api';
 
 const LOGO_URL = '/src/assets/Kare_Logo.png';
 
@@ -25,17 +27,110 @@ const quoteText = "AN ANT ON THE MOVE DOES MORE THAN A DOZING OX.";
 const libraryTimings = "Mon-Fri: 8AM to 8PM | Sat: 9AM to 2PM";
 
 const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
-  const [regNo, setRegNo] = useState('');
+  const [regNumber, setRegNumber] = useState('');
   const [submitMsg, setSubmitMsg] = useState('');
   const [showReturnDialog, setShowReturnDialog] = useState(false);
   const [returnPass, setReturnPass] = useState('');
   const [returnError, setReturnError] = useState('');
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'warning' | 'info' });
+  const [successMessage, setSuccessMessage] = useState<{
+    show: boolean;
+    type: 'entry' | 'exit';
+    userName: string;
+    timeSpent?: string;
+    timestamp: string;
+  }>({ show: false, type: 'entry', userName: '', timestamp: '' });
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!regNo.trim()) return;
-    setSubmitMsg('Not connected to database. Try again later.');
-    setRegNo('');
+    if (!regNumber.trim() || isProcessing) return;
+    
+    setIsProcessing(true);
+    setSubmitMsg('');
+    
+    try {
+      // First try to record entry
+      try {
+        const entryResponse = await apiService.recordEntry({
+          registrationNumber: regNumber.trim(),
+          method: 'manual_entry',
+          purpose: 'study',
+          location: 'main_gate'
+        });
+        
+        if (entryResponse.success) {
+          const user = entryResponse.data?.entry?.user;
+          const timestamp = new Date().toLocaleString();
+          
+          setSuccessMessage({
+            show: true,
+            type: 'entry',
+            userName: `${user?.firstName} ${user?.lastName}`,
+            timestamp
+          });
+          
+          setRegNumber('');
+          
+          // Auto-hide after 2 seconds
+          setTimeout(() => {
+            setSuccessMessage(prev => ({ ...prev, show: false }));
+          }, 2000);
+          
+          return;
+        }
+      } catch (entryError: any) {
+        // If entry fails because user is already inside, try exit
+        if (entryError.message?.includes('already inside')) {
+          try {
+            const exitResponse = await apiService.recordExit({
+              registrationNumber: regNumber.trim(),
+              method: 'manual_entry',
+              location: 'main_gate'
+            });
+            
+            if (exitResponse.success) {
+              const user = exitResponse.data?.exit?.user;
+              const timeSpent = exitResponse.data?.exit?.timeSpent || 'Unknown';
+              console.log('Exit response timeSpent:', timeSpent);
+              const timestamp = new Date().toLocaleString();
+              
+              setSuccessMessage({
+                show: true,
+                type: 'exit',
+                userName: `${user?.firstName} ${user?.lastName}`,
+                timeSpent,
+                timestamp
+              });
+              
+              setRegNumber('');
+              
+              // Auto-hide after 2 seconds
+              setTimeout(() => {
+                setSuccessMessage(prev => ({ ...prev, show: false }));
+              }, 2000);
+              
+              return;
+            }
+          } catch (exitError: any) {
+            throw exitError;
+          }
+        } else {
+          throw entryError;
+        }
+      }
+      
+    } catch (error: any) {
+      console.error('Entry/Exit error:', error);
+      setSubmitMsg(error.message || 'Failed to process request. Please try again.');
+      setSnackbar({
+        open: true,
+        message: error.message || 'Failed to process request. Please try again.',
+        severity: 'error'
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const openReturnDialog = () => setShowReturnDialog(true);
@@ -122,8 +217,8 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
             <form onSubmit={handleSubmit}>
               <TextField
                 label="Register Number"
-                value={regNo}
-                onChange={e => setRegNo(e.target.value)}
+                value={regNumber}
+                onChange={e => setRegNumber(e.target.value)}
                 fullWidth
                 autoFocus
                 InputProps={{
@@ -144,6 +239,7 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
                 color="primary"
                 type="submit"
                 fullWidth
+                disabled={isProcessing}
                 sx={{
                   py: 1.2,
                   fontWeight: 700,
@@ -155,9 +251,67 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
                   mt: 1
                 }}
               >
-                Submit
+                {isProcessing ? 'Processing...' : 'Submit'}
               </Button>
             </form>
+
+            {/* Success Message Display */}
+            {successMessage.show && (
+              <Box sx={{ 
+                mt: 4, 
+                p: 4, 
+                bgcolor: '#f8f9fa',
+                borderRadius: 3,
+                border: '2px solid #e9ecef',
+                textAlign: 'center',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+              }}>
+                <Typography variant="h4" sx={{ 
+                  color: '#1e3a8a',
+                  fontWeight: 800,
+                  mb: 2,
+                  fontSize: '2rem'
+                }}>
+                  {successMessage.type === 'entry' ? 'ENTRY SUCCESSFUL' : 'EXIT SUCCESSFUL'}
+                </Typography>
+                
+                <Typography variant="h5" sx={{ 
+                  fontWeight: 700, 
+                  mb: 2,
+                  color: '#2c3e50',
+                  fontSize: '1.5rem'
+                }}>
+                  {successMessage.userName}
+                </Typography>
+                
+                <Typography variant="h6" sx={{ 
+                  color: '#6c757d', 
+                  mb: 2,
+                  fontSize: '1.2rem',
+                  fontWeight: 500
+                }}>
+                  {successMessage.timestamp}
+                </Typography>
+                
+                {successMessage.type === 'exit' && successMessage.timeSpent && (
+                  <Box sx={{
+                    mt: 3,
+                    p: 2,
+                    bgcolor: '#e3f2fd',
+                    borderRadius: 2,
+                    border: '1px solid #bbdefb'
+                  }}>
+                    <Typography variant="h6" sx={{ 
+                      color: '#1565c0', 
+                      fontWeight: 700,
+                      fontSize: '1.3rem'
+                    }}>
+                      Time Spent: {successMessage.timeSpent}
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+            )}
 
             {submitMsg && (
               <Alert severity="warning" sx={{ mt: 2 }}>
@@ -187,6 +341,22 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
           <Button onClick={handleReturnConfirm} variant="contained">Confirm</Button>
         </DialogActions>
       </Dialog>
+
+      {/* Snackbar for notifications */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
+          severity={snackbar.severity}
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
      );
  };

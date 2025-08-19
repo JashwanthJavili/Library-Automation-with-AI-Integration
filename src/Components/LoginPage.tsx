@@ -173,7 +173,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                   color="primary"
                 />
               }
-              label="Remember Me"
+              label={<Typography sx={{ color: '#475569', fontSize: 15 }}>Remember Me</Typography>}
               sx={{ mt: 2, mb: 1.5 }}
             />
 

@@ -126,7 +126,7 @@ entrySchema.statics.getActiveEntries = function() {
   return this.find({ 
     entryType: 'entry', 
     status: 'active' 
-  }).populate('user', 'firstName lastName studentId department');
+  }).populate('user', 'firstName lastName studentId department section gender role');
 };
 
 // Static method to get user's current status

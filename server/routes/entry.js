@@ -230,19 +230,24 @@ router.post('/exit', [
 
     await exit.save();
 
-    // Calculate duration from the corresponding entry
+    // Calculate duration from the most recent entry prior to this exit (robust against status races)
     const entryRecord = await Entry.findOne({
       user: user._id,
       entryType: 'entry',
-      status: 'active'
+      timestamp: { $lt: exit.timestamp }
     }).sort({ timestamp: -1 });
 
     let duration = 0;
     if (entryRecord) {
-      duration = (exit.timestamp - entryRecord.timestamp) / (1000 * 60); // Keep decimal precision
-      // Mark entry as completed
-      entryRecord.status = 'completed';
-      await entryRecord.save();
+      duration = (exit.timestamp - entryRecord.timestamp) / (1000 * 60);
+      // Persist duration on exit for consistency
+      exit.duration = Math.max(0, duration);
+      await exit.save();
+      // Mark entry as completed if still active
+      if (entryRecord.status !== 'completed') {
+        entryRecord.status = 'completed';
+        await entryRecord.save();
+      }
     }
 
     res.status(201).json({
@@ -256,12 +261,16 @@ router.post('/exit', [
             firstName: user.firstName,
             lastName: user.lastName,
             studentId: user.studentId,
-            department: user.department
+            department: user.department,
+            section: user.section,
+            gender: user.gender,
+            role: user.role
           },
           timestamp: exit.timestamp,
           method,
           location,
           duration: duration,
+          entryTime: entryRecord ? entryRecord.timestamp : null,
           timeSpent: (() => {
             if (duration < 1) {
               return `${Math.round(duration * 60)}s`;
@@ -432,7 +441,7 @@ router.get('/history', protect, authorize('admin', 'librarian'), async (req, res
       .sort({ timestamp: -1 })
       .skip(skip)
       .limit(parseInt(limit))
-      .populate('user', 'firstName lastName studentId department')
+      .populate('user', 'firstName lastName studentId department section gender role')
       .populate('verifiedBy', 'firstName lastName');
 
     // For exit entries, find the corresponding entry time

@@ -16,6 +16,8 @@ export interface User {
   role: 'admin' | 'librarian' | 'faculty' | 'student';
   studentId?: string;
   department?: string;
+  section?: string;
+  gender?: string;
   phone?: string;
   isActive: boolean;
   lastLogin?: string;

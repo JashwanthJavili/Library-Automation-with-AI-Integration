@@ -39,30 +39,7 @@ const categories = [
     description: 'Monitor and log student entry/exit in real-time.',
     active: true
   },
-  {
-    title: 'Book Catalogue',
-    icon: <SearchIcon sx={{ fontSize: 48, color: '#37b24d' }} />,
-    description: 'Search, filter and browse library books.',
-    active: false
-  },
-  {
-    title: 'Book Issue/Return',
-    icon: <AssignmentReturnIcon sx={{ fontSize: 48, color: '#6741d9' }} />,
-    description: 'Process book issues and returns smoothly.',
-    active: false
-  },
-  {
-    title: 'Borrower Management',
-    icon: <PeopleAltIcon sx={{ fontSize: 48, color: '#f59f00' }} />,
-    description: 'View and manage student borrowing activity.',
-    active: false
-  },
-  {
-    title: 'Attendance Logs',
-    icon: <LibraryBooksIcon sx={{ fontSize: 48, color: '#e8590c' }} />,
-    description: 'Track entry and exit attendance logs.',
-    active: false
-  },
+
   {
     title: 'Hall/Room Booking',
     icon: <MeetingRoomIcon sx={{ fontSize: 48, color: '#4dabf7' }} />,
@@ -70,22 +47,10 @@ const categories = [
     active: false
   },
   {
-    title: 'Notices',
-    icon: <NotificationsIcon sx={{ fontSize: 48, color: '#fa5252' }} />,
-    description: 'Post and view library messages/alerts.',
-    active: false
-  },
-  {
     title: 'Analytics & Reports',
     icon: <BarChartIcon sx={{ fontSize: 48, color: '#228be6' }} />,
     description: 'Visualize library usage and generate reports.',
     active: true
-  },
-  {
-    title: 'Settings',
-    icon: <SettingsIcon sx={{ fontSize: 48, color: '#495057' }} />,
-    description: 'Update system preferences & manage users.',
-    active: false
   }
 ];
 

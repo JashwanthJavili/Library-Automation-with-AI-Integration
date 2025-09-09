@@ -31,14 +31,18 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  Stack
+  Stack,
+  Collapse
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PeopleIcon from '@mui/icons-material/People';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import SearchIcon from '@mui/icons-material/Search';
+import FilterListIcon from '@mui/icons-material/FilterList';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import { apiService } from '../services/api';
+import * as XLSX from 'xlsx';
 
 const LOGO_URL = '/src/assets/Kare_Logo.png';
 
@@ -120,7 +124,9 @@ const Analytics: React.FC<AnalyticsProps> = React.memo(({ onReturn }) => {
   const [sectionFilter, setSectionFilter] = useState<string>('all');
   const [genderFilter, setGenderFilter] = useState<string>('all');
   const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [departmentFilter, setDepartmentFilter] = useState<string>('all');
   const [timeFilter, setTimeFilter] = useState<'all' | '1h' | '24h' | '7d'>('all');
+  const [showFilters, setShowFilters] = useState<boolean>(false);
   const [userById, setUserById] = useState<Record<string, any>>({});
 
   // Fetch users to enrich entries with section, gender, role
@@ -245,6 +251,44 @@ const Analytics: React.FC<AnalyticsProps> = React.memo(({ onReturn }) => {
     setSortConfig({ key, direction });
   };
 
+  // Export function
+  const handleExport = () => {
+    const data = sortedFilteredEntries;
+    const timestamp = new Date().toISOString().split('T')[0];
+    const prefix = viewMode === 'current' ? 'Current_Students' : 'Previous_Students';
+    const isFiltered = sectionFilter !== 'all' || genderFilter !== 'all' || roleFilter !== 'all' || departmentFilter !== 'all' || timeFilter !== 'all' || searchQuery !== '';
+    const suffix = isFiltered ? 'Filtered' : 'All';
+    
+    const worksheetData = data.map(entry => ({
+      'Student Name': `${entry.user.firstName} ${entry.user.lastName}`,
+      'Registration No.': entry.user.studentId,
+      'Department': entry.user.department,
+      'Section': entry.user.section || '-',
+      'Gender': entry.user.gender || '-',
+      'Role': entry.user.role || '-',
+      'Entry Time': viewMode === 'current' 
+        ? new Date((entry as ActiveEntry).timestamp).toLocaleString()
+        : new Date((entry as HistoricalEntry).entryTime).toLocaleString(),
+      'Exit Time': viewMode === 'previous' 
+        ? new Date((entry as HistoricalEntry).exitTime).toLocaleString()
+        : '-',
+      'Time Spent': viewMode === 'current' 
+        ? formatTimeSpent((entry as ActiveEntry).timeSpent)
+        : (entry as HistoricalEntry).timeSpent,
+      'Location': entry.location.replace('_', ' ')
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(worksheetData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Library Analytics');
+    
+    // Auto-size columns
+    const colWidths = Object.keys(worksheetData[0] || {}).map(key => ({ wch: Math.max(key.length, 15) }));
+    worksheet['!cols'] = colWidths;
+    
+    XLSX.writeFile(workbook, `${prefix}_${suffix}_${timestamp}.xlsx`);
+  };
+
   const sortedFilteredEntries = useMemo(() => {
     const entries = viewMode === 'current' ? activeEntries : historicalEntries;
     const now = Date.now();
@@ -259,6 +303,7 @@ const Analytics: React.FC<AnalyticsProps> = React.memo(({ onReturn }) => {
       .filter(e => (sectionFilter === 'all' || (e.user.section || '').toLowerCase() === sectionFilter))
       .filter(e => (genderFilter === 'all' || (e.user.gender || '').toLowerCase() === genderFilter))
       .filter(e => (roleFilter === 'all' || (e.user.role || '').toLowerCase() === roleFilter))
+      .filter(e => (departmentFilter === 'all' || (e.user.department || '').toLowerCase() === departmentFilter))
       .filter(e => `${e.user.firstName} ${e.user.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) || e.user.studentId.toLowerCase().includes(searchQuery.toLowerCase()));
     return [...filtered].sort((a, b) => {
       let aVal: any, bVal: any;
@@ -278,23 +323,26 @@ const Analytics: React.FC<AnalyticsProps> = React.memo(({ onReturn }) => {
       }
       return (aVal < bVal ? -1 : aVal > bVal ? 1 : 0) * (sortConfig.direction === 'asc' ? 1 : -1);
     });
-  }, [activeEntries, historicalEntries, viewMode, searchQuery, sortConfig, sectionFilter, genderFilter, roleFilter, timeFilter]);
+  }, [activeEntries, historicalEntries, viewMode, searchQuery, sortConfig, sectionFilter, genderFilter, roleFilter, departmentFilter, timeFilter]);
 
   // Dynamic filter option lists based on current dataset
-  const { sectionOptions, genderOptions, roleOptions } = useMemo(() => {
+  const { sectionOptions, genderOptions, roleOptions, departmentOptions } = useMemo(() => {
     const entries = viewMode === 'current' ? activeEntries : historicalEntries;
     const sections = new Set<string>();
     const genders = new Set<string>();
     const roles = new Set<string>();
+    const departments = new Set<string>();
     entries.forEach((e) => {
       const s = (e.user.section || '').trim(); if (s) sections.add(s);
       const g = (e.user.gender || '').trim().toLowerCase(); if (g) genders.add(g);
       const r = (e.user.role || '').trim().toLowerCase(); if (r) roles.add(r);
+      const d = (e.user.department || '').trim().toLowerCase(); if (d) departments.add(d);
     });
     return {
       sectionOptions: Array.from(sections).sort((a,b) => a.localeCompare(b)),
       genderOptions: Array.from(genders).sort((a,b) => a.localeCompare(b)),
-      roleOptions: Array.from(roles).sort((a,b) => a.localeCompare(b))
+      roleOptions: Array.from(roles).sort((a,b) => a.localeCompare(b)),
+      departmentOptions: Array.from(departments).sort((a,b) => a.localeCompare(b))
     };
   }, [activeEntries, historicalEntries, viewMode]);
 
@@ -349,9 +397,29 @@ const Analytics: React.FC<AnalyticsProps> = React.memo(({ onReturn }) => {
                   <ToggleButton value="previous">Previous Students</ToggleButton>
                 </ToggleButtonGroup>
               </Box>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2, mb: 2 }}>
                 <Typography variant="body2" sx={{ color: 'text.secondary' }}>Last updated: {lastUpdated.toLocaleTimeString()}</Typography>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: 'center' }}>
+                  <Button
+                    variant="outlined"
+                    startIcon={<FilterListIcon />}
+                    onClick={() => setShowFilters(!showFilters)}
+                    sx={{ minWidth: 120 }}
+                  >
+                    {showFilters ? 'Hide Filters' : 'Show Filters'}
+                  </Button>
+                  <Button
+                    variant="contained"
+                    startIcon={<FileDownloadIcon />}
+                    onClick={handleExport}
+                    sx={{ minWidth: 140, bgcolor: 'secondary.main', '&:hover': { bgcolor: 'secondary.dark' } }}
+                  >
+                    Export Data
+                  </Button>
+                </Stack>
+              </Box>
+              <Collapse in={showFilters}>
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap', gap: 2, mb: 2, p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
                   <FormControl size="small" sx={{ minWidth: 120 }}>
                     <InputLabel>Section</InputLabel>
                     <Select label="Section" value={sectionFilter} onChange={(e) => setSectionFilter((e.target.value as string).toLowerCase())}>
@@ -380,6 +448,15 @@ const Analytics: React.FC<AnalyticsProps> = React.memo(({ onReturn }) => {
                     </Select>
                   </FormControl>
                   <FormControl size="small" sx={{ minWidth: 140 }}>
+                    <InputLabel>Department</InputLabel>
+                    <Select label="Department" value={departmentFilter} onChange={(e) => setDepartmentFilter((e.target.value as string).toLowerCase())}>
+                      <MenuItem value="all">All</MenuItem>
+                      {departmentOptions.map((opt) => (
+                        <MenuItem key={opt} value={opt}>{opt.charAt(0).toUpperCase() + opt.slice(1)}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <FormControl size="small" sx={{ minWidth: 140 }}>
                     <InputLabel>Time</InputLabel>
                     <Select label="Time" value={timeFilter} onChange={(e) => setTimeFilter(e.target.value as any)}>
                       <MenuItem value="all">All Time</MenuItem>
@@ -389,8 +466,8 @@ const Analytics: React.FC<AnalyticsProps> = React.memo(({ onReturn }) => {
                     </Select>
                   </FormControl>
                   <TextField size="small" placeholder="Search by name or ID" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} InputProps={{ startAdornment: <SearchIcon sx={{ color: 'action.active', mr: 1 }} /> }} sx={{ width: { xs: '100%', sm: 240 } }} />
-                </Stack>
-              </Box>
+                </Box>
+              </Collapse>
             </Box>
             <Divider />
             {loading ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress aria-label="Loading data" /></Box> : error ? <Box sx={{ p: 3 }}><Alert severity="error">{error}</Alert><Button variant="contained" onClick={() => viewMode === 'current' ? fetchActive() : fetchHistorical()} sx={{ mt: 2 }}>Retry</Button></Box> : !sortedFilteredEntries.length ? <Box sx={{ textAlign: 'center', py: 6 }}><PeopleIcon sx={{ fontSize: 64, color: 'action.disabled', mb: 2 }} /><Typography variant="h6" sx={{ color: 'text.secondary' }}>No Data Available</Typography></Box> : (
@@ -404,8 +481,8 @@ const Analytics: React.FC<AnalyticsProps> = React.memo(({ onReturn }) => {
                       <TableCell sx={{ fontWeight: 700 }}>Section</TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>Gender</TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>Role</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sortConfig.key === 'entryTime'} direction={sortConfig.key === 'entryTime' ? sortConfig.direction : 'asc'} onClick={() => requestSort('entryTime')}>Entry Time</TableSortLabel></TableCell>
-                      {viewMode === 'previous' && <TableCell sx={{ fontWeight: 700 }}>Exit Time</TableCell>}
+                      <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sortConfig.key === 'entryTime'} direction={sortConfig.key === 'entryTime' ? sortConfig.direction : 'asc'} onClick={() => requestSort('entryTime')}>Entry Date & Time</TableSortLabel></TableCell>
+                      {viewMode === 'previous' && <TableCell sx={{ fontWeight: 700 }}>Exit Date & Time</TableCell>}
                       <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sortConfig.key === 'timeSpent'} direction={sortConfig.key === 'timeSpent' ? sortConfig.direction : 'asc'} onClick={() => requestSort('timeSpent')}>Time Spent</TableSortLabel></TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>Location</TableCell>
                     </TableRow>
@@ -419,8 +496,8 @@ const Analytics: React.FC<AnalyticsProps> = React.memo(({ onReturn }) => {
                         <TableCell>{e.user.section || '-'}</TableCell>
                         <TableCell sx={{ textTransform: 'capitalize' }}>{e.user.gender || '-'}</TableCell>
                         <TableCell sx={{ textTransform: 'capitalize' }}>{e.user.role || '-'}</TableCell>
-                        <TableCell>{viewMode === 'current' ? new Date((e as ActiveEntry).timestamp).toLocaleTimeString() : new Date((e as HistoricalEntry).entryTime).toLocaleTimeString()}</TableCell>
-                        {viewMode === 'previous' && <TableCell>{new Date((e as HistoricalEntry).exitTime).toLocaleTimeString()}</TableCell>}
+                        <TableCell>{viewMode === 'current' ? new Date((e as ActiveEntry).timestamp).toLocaleString() : new Date((e as HistoricalEntry).entryTime).toLocaleString()}</TableCell>
+                        {viewMode === 'previous' && <TableCell>{new Date((e as HistoricalEntry).exitTime).toLocaleString()}</TableCell>}
                         <TableCell>
                           <Chip label={viewMode === 'current' ? formatTimeSpent((e as ActiveEntry).timeSpent) : (e as HistoricalEntry).timeSpent} size="small" sx={{ bgcolor: viewMode === 'current' ? getTimeSpentColor((e as ActiveEntry).timeSpent) : getTimeSpentColor(parseTimeToMinutes((e as HistoricalEntry).timeSpent)), color: 'white', fontWeight: 600 }} />
                         </TableCell>

@@ -78,6 +78,30 @@ router.post('/enter', [
       });
     }
 
+    // Special cooldown: block rapid repeat for student 9922008035 within last 10s
+    try {
+      const cooldownStudentId = '9922008035';
+      const providedId = registrationNumber || idCardNumber;
+      if (providedId && providedId === cooldownStudentId) {
+        const tenSecondsAgo = new Date(Date.now() - 10 * 1000);
+        const recent = await Entry.findOne({
+          $or: [
+            { registrationNumber: cooldownStudentId },
+            { idCardNumber: cooldownStudentId }
+          ],
+          timestamp: { $gte: tenSecondsAgo }
+        }).sort({ timestamp: -1 });
+        if (recent) {
+          return res.status(429).json({
+            success: false,
+            message: 'Please wait 10 seconds before trying again'
+          });
+        }
+      }
+    } catch (cdErr) {
+      // do not block on cooldown lookup errors
+    }
+
     // Check if user can enter (not already inside)
     const canEnter = await Entry.canUserEnter(user._id);
     if (!canEnter) {
@@ -201,6 +225,30 @@ router.post('/exit', [
         success: false,
         message: 'User not found or account inactive'
       });
+    }
+
+    // Special cooldown: block rapid repeat for student 9922008035 within last 10s
+    try {
+      const cooldownStudentId = '9922008035';
+      const providedId = registrationNumber || idCardNumber;
+      if (providedId && providedId === cooldownStudentId) {
+        const tenSecondsAgo = new Date(Date.now() - 10 * 1000);
+        const recent = await Entry.findOne({
+          $or: [
+            { registrationNumber: cooldownStudentId },
+            { idCardNumber: cooldownStudentId }
+          ],
+          timestamp: { $gte: tenSecondsAgo }
+        }).sort({ timestamp: -1 });
+        if (recent) {
+          return res.status(429).json({
+            success: false,
+            message: 'Please wait 10 seconds before trying again'
+          });
+        }
+      }
+    } catch (cdErr) {
+      // do not block on cooldown lookup errors
     }
 
     // Check if user can exit (currently inside)
@@ -382,6 +430,136 @@ router.get('/status/:userId', protect, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error while fetching user status'
+    });
+  }
+});
+
+// @desc    Get real-time statistics for main gate dashboard
+// @route   GET /api/entry/dashboard-stats
+// @access  Public (for main gate display)
+router.get('/dashboard-stats', async (req, res) => {
+  try {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+
+    // Get current active entries with user details
+    const activeEntries = await Entry.find({
+      entryType: 'entry',
+      status: 'active'
+    }).populate('user', 'firstName lastName studentId department section gender role');
+
+    // Normalize gender values and compute robust counts
+    const normalizeGender = (raw) => {
+      if (!raw) return null;
+      const g = String(raw).trim().toLowerCase();
+      if (["male", "m", "boy", "boys"].includes(g)) return 'male';
+      if (["female", "f", "girl", "girls"].includes(g)) return 'female';
+      return null; // treat unknown as null, not counted toward total
+    };
+
+    let maleCount = 0;
+    let femaleCount = 0;
+    const departmentStats = {};
+
+    for (const entry of activeEntries) {
+      const norm = normalizeGender(entry.user?.gender);
+      if (norm === 'male') maleCount += 1;
+      else if (norm === 'female') femaleCount += 1;
+      const dept = (entry.user?.department || 'Unknown');
+      departmentStats[dept] = (departmentStats[dept] || 0) + 1;
+    }
+
+    // Total students equals sum of boys and girls only (as requested)
+    const totalStudents = maleCount + femaleCount;
+
+    // Get today's total entries
+    const todayEntries = await Entry.countDocuments({
+      entryType: 'entry',
+      timestamp: { $gte: todayStart, $lt: todayEnd }
+    });
+
+    // Get today's total exits
+    const todayExits = await Entry.countDocuments({
+      entryType: 'exit',
+      timestamp: { $gte: todayStart, $lt: todayEnd }
+    });
+
+    // Gender stats reported explicitly with normalized values
+    const genderStats = { male: maleCount, female: femaleCount };
+
+    // Calculate hourly distribution for today
+    const hourlyStats = await Entry.aggregate([
+      {
+        $match: {
+          entryType: 'entry',
+          timestamp: { $gte: todayStart, $lt: todayEnd }
+        }
+      },
+      {
+        $group: {
+          _id: { $hour: '$timestamp' },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    // Find peak hour
+    const peakHour = hourlyStats.reduce((max, hour) => 
+      hour.count > max.count ? hour : max, 
+      { _id: 0, count: 0 }
+    );
+
+    // Calculate average session time for today's exits
+    const avgSessionTime = await Entry.aggregate([
+      {
+        $match: {
+          entryType: 'exit',
+          timestamp: { $gte: todayStart, $lt: todayEnd },
+          duration: { $exists: true, $gt: 0 }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          avgDuration: { $avg: '$duration' }
+        }
+      }
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        current: {
+          totalStudents,
+          girls: femaleCount,
+          boys: maleCount
+        },
+        today: {
+          totalEntries: todayEntries,
+          totalExits: todayExits,
+          netEntries: todayEntries - todayExits
+        },
+        breakdown: {
+          departments: departmentStats,
+          gender: genderStats
+        },
+        analytics: {
+          peakHour: peakHour._id,
+          peakHourCount: peakHour.count,
+          avgSessionTime: avgSessionTime[0]?.avgDuration || 0,
+          hourlyDistribution: hourlyStats
+        },
+        lastUpdated: now
+      }
+    });
+
+  } catch (error) {
+    console.error('Get dashboard stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching dashboard statistics'
     });
   }
 });

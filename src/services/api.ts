@@ -192,6 +192,33 @@ class ApiService {
     return this.request<{ entries: EntryRecord[] }>(`/entry/history?limit=${limit}&type=exit`);
   }
 
+  async getDashboardStats(): Promise<ApiResponse<{
+    current: {
+      totalStudents: number;
+      girls: number;
+      boys: number;
+      unknown: number;
+    };
+    today: {
+      totalEntries: number;
+      totalExits: number;
+      netEntries: number;
+    };
+    breakdown: {
+      departments: Record<string, number>;
+      gender: Record<string, number>;
+    };
+    analytics: {
+      peakHour: number;
+      peakHourCount: number;
+      avgSessionTime: number;
+      hourlyDistribution: Array<{ _id: number; count: number }>;
+    };
+    lastUpdated: string;
+  }>> {
+    return this.request('/entry/dashboard-stats');
+  }
+
   // User management endpoints
   async getUsers(params?: { page?: number; limit?: number; role?: string; department?: string; search?: string }): Promise<ApiResponse<{ users: User[]; pagination: any }>> {
     const queryParams = new URLSearchParams();

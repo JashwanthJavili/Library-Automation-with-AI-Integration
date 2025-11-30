@@ -4,8 +4,6 @@ import {
   Typography,
   TextField,
   Button,
-  Card,
-  CardContent,
   AppBar,
   Toolbar,
   Avatar,
@@ -15,16 +13,17 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  Paper,
+  IconButton,
+  Tooltip
 } from '@mui/material';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import LockIcon from '@mui/icons-material/Lock';
 import { apiService } from '../services/api';
 
 const LOGO_URL = '/src/assets/Kare_Logo.png';
-
-const quoteText = "AN ANT ON THE MOVE DOES MORE THAN A DOZING OX.";
-const libraryTimings = "Mon-Fri: 8AM to 8PM | Sat: 9AM to 2PM";
+const BACKGROUND_IMAGE = '/src/assets/KAREUniversity.jpg';
 
 const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
   const [regNumber, setRegNumber] = useState('');
@@ -36,12 +35,28 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
   const [successMessage, setSuccessMessage] = useState<{
     show: boolean;
     type: 'entry' | 'exit';
+    registrationNumber: string;
     userName: string;
     timeSpent?: string;
     timestamp: string;
-  }>({ show: false, type: 'entry', userName: '', timestamp: '' });
+  }>({ show: false, type: 'entry', registrationNumber: '', userName: '', timestamp: '' });
   const [isProcessing, setIsProcessing] = useState(false);
 
+  const formatTimeSpent = (minutes: number): string => {
+    if (!minutes || minutes < 1) {
+      const seconds = Math.round((minutes || 0) * 60);
+      return `${seconds}s`;
+    }
+    const hours = Math.floor(minutes / 60);
+    const mins = Math.floor(minutes % 60);
+    const secs = Math.round((minutes % 1) * 60);
+    if (hours > 0) {
+      return secs > 0 ? `${hours}h ${mins}m ${secs}s` : `${hours}h ${mins}m`;
+    }
+    return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+  };
+
+  // Handle form submission for entry or exit
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!regNumber.trim() || isProcessing) return;
@@ -50,7 +65,7 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
     setSubmitMsg('');
     
     try {
-      // First try to record entry
+      // Attempt to record entry
       try {
         const entryResponse = await apiService.recordEntry({
           registrationNumber: regNumber.trim(),
@@ -62,17 +77,19 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
         if (entryResponse.success) {
           const user = entryResponse.data?.entry?.user;
           const timestamp = new Date().toLocaleString();
-          
+
           setSuccessMessage({
             show: true,
             type: 'entry',
+            registrationNumber: user?.studentId || regNumber.trim(),
             userName: `${user?.firstName} ${user?.lastName}`,
+            timeSpent: undefined,
             timestamp
           });
           
           setRegNumber('');
           
-          // Auto-hide after 2 seconds
+          // Auto-hide success message after 2 seconds
           setTimeout(() => {
             setSuccessMessage(prev => ({ ...prev, show: false }));
           }, 2000);
@@ -80,48 +97,58 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
           return;
         }
       } catch (entryError: any) {
-        // If entry fails because user is already inside, try exit
+        // If user is already inside, attempt exit instead
         if (entryError.message?.includes('already inside')) {
-          try {
-            const exitResponse = await apiService.recordExit({
-              registrationNumber: regNumber.trim(),
-              method: 'manual_entry',
-              location: 'main_gate'
+          const exitResponse = await apiService.recordExit({
+            registrationNumber: regNumber.trim(),
+            method: 'manual_entry',
+            location: 'main_gate'
+          });
+          
+          if (exitResponse.success) {
+            const exit = exitResponse.data?.exit;
+            const user = exit?.user;
+            let timeSpentStr = exit?.timeSpent as string | undefined;
+
+            if (!timeSpentStr) {
+              // Prefer explicit duration (assumed minutes), else compute from timestamps
+              if (typeof exit?.duration === 'number') {
+                timeSpentStr = formatTimeSpent(exit.duration);
+              } else if (exit?.entryTime && exit?.timestamp) {
+                const entryMs = new Date(exit.entryTime as any).getTime();
+                const exitMs = new Date(exit.timestamp as any).getTime();
+                const minutes = (exitMs - entryMs) / (1000 * 60);
+                timeSpentStr = formatTimeSpent(minutes);
+              } else {
+                timeSpentStr = '0s';
+              }
+            }
+
+            const timestamp = new Date().toLocaleString();
+
+            setSuccessMessage({
+              show: true,
+              type: 'exit',
+              registrationNumber: user?.studentId || regNumber.trim(),
+              userName: `${user?.firstName} ${user?.lastName}`,
+              timeSpent: timeSpentStr,
+              timestamp
             });
             
-            if (exitResponse.success) {
-              const user = exitResponse.data?.exit?.user;
-              const timeSpent = exitResponse.data?.exit?.timeSpent || 'Unknown';
-              console.log('Exit response timeSpent:', timeSpent);
-              const timestamp = new Date().toLocaleString();
-              
-              setSuccessMessage({
-                show: true,
-                type: 'exit',
-                userName: `${user?.firstName} ${user?.lastName}`,
-                timeSpent,
-                timestamp
-              });
-              
-              setRegNumber('');
-              
-              // Auto-hide after 2 seconds
-              setTimeout(() => {
-                setSuccessMessage(prev => ({ ...prev, show: false }));
-              }, 2000);
-              
-              return;
-            }
-          } catch (exitError: any) {
-            throw exitError;
+            setRegNumber('');
+            
+            // Auto-hide success message after 2 seconds
+            setTimeout(() => {
+              setSuccessMessage(prev => ({ ...prev, show: false }));
+            }, 2000);
+            
+            return;
           }
         } else {
           throw entryError;
         }
       }
-      
     } catch (error: any) {
-      console.error('Entry/Exit error:', error);
       setSubmitMsg(error.message || 'Failed to process request. Please try again.');
       setSnackbar({
         open: true,
@@ -135,6 +162,7 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
 
   const openReturnDialog = () => setShowReturnDialog(true);
 
+  // Handle return confirmation with password check
   const handleReturnConfirm = () => {
     if (returnPass === 'comeback') {
       setReturnError('');
@@ -147,76 +175,93 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
   };
 
   return (
-    <Box sx={{ minHeight: '100vh', width: '100vw', bgcolor: '#f8fafc' }}>
-      <AppBar position="static" elevation={2} color="inherit" sx={{ bgcolor: '#fff', borderBottom: '1px solid #e2e8f0' }}>
-        <Toolbar sx={{ maxWidth: 1280, mx: 'auto', width: '100%', px: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Avatar src={LOGO_URL} alt="KARE Logo" variant="rounded" sx={{ width: 48, height: 48 }} imgProps={{ referrerPolicy: 'no-referrer' }} />
-            <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: 1, color: '#1e3a8a', ml: 1, fontSize: { xs: 21, sm: 24 } }}>
+    <Box sx={{ 
+      width: '100vw',
+      minHeight: '100vh', 
+      backgroundImage: `linear-gradient(rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.3)), url(${BACKGROUND_IMAGE})`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+      backgroundAttachment: 'fixed',
+      backgroundRepeat: 'no-repeat',
+      display: 'flex',
+      flexDirection: 'column'
+    }}>
+      {/* Header */}
+      <AppBar 
+        position="static" 
+        elevation={0} 
+        sx={{ 
+          bgcolor: 'rgba(255, 255, 255, 0.95)', 
+          borderBottom: '1px solid #e5e7eb'
+        }}
+      >
+        <Toolbar disableGutters sx={{ px: { xs: 2, sm: 4 } }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexGrow: 1 }}>
+            <Avatar 
+              src={LOGO_URL} 
+              alt="KARE Logo" 
+              variant="rounded" 
+              sx={{ width: 32, height: 32 }} 
+            />
+            <Typography variant="h6" sx={{ fontWeight: 600, color: '#111827' }}>
               LMS – KARE
             </Typography>
           </Box>
-          <Button
-            variant="outlined"
-            color="primary"
-            onClick={openReturnDialog}
-            sx={{ textTransform: 'none', fontWeight: 600 }}
-            startIcon={<LockIcon />}
-          >
-            Return
-          </Button>
+          <Tooltip title="Return">
+            <IconButton
+              onClick={openReturnDialog}
+              size="small"
+              sx={{ 
+                border: '1px solid #d1d5db',
+                color: '#374151',
+                '&:hover': { borderColor: '#9ca3af', bgcolor: 'rgba(0,0,0,0.02)' }
+              }}
+              aria-label="return"
+            >
+              <LockIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
         </Toolbar>
       </AppBar>
 
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', md: 'row' },
-          minHeight: 'calc(100vh - 64px)',
-          width: '100%'
-        }}
-      >
-        {/* Left: Quote and Timings */}
-        <Box sx={{ flex: 1.1, bgcolor: '#eaf1fb', display: 'flex', justifyContent: 'center', alignItems: 'center', px: { xs: 2, md: 6 } }}>
-          <Card sx={{ maxWidth: 440, bgcolor: '#16213e', borderRadius: 4, boxShadow: 6, p: 3, color: 'white', textAlign: 'center' }}>
-            <CardContent>
-              <Typography variant="overline" sx={{ fontWeight: 800, color: '#81bff8', letterSpacing: 1.3, mb: 2, fontSize: 13 }}>
-                Quote for the Thought
-              </Typography>
-              <Typography variant="h6" sx={{ fontWeight: 700, fontSize: 18, letterSpacing: 1.1, lineHeight: 1.2 }}>
-                {quoteText}
-              </Typography>
-              <Box sx={{ borderTop: '1px dashed #a1caff', pt: 2, mt: 3 }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: 20, color: '#7bc5d6' }}>
-                  Library Timings
-                </Typography>
-                <Typography variant="body1" sx={{ fontWeight: 500, mt: 0.5 }}>
-                  {libraryTimings}
-                </Typography>
-              </Box>
-            </CardContent>
-          </Card>
-        </Box>
-
-        {/* Right: Entry UI */}
-        <Box sx={{flex: 1.4, bgcolor: 'white', display: 'flex', justifyContent: 'center', alignItems: 'center', px: { xs: 2, md: 8 } }}>
-          <Box sx={{ width: '100%', maxWidth: 400, textAlign: 'center' }}>
-            <Typography variant="h5" sx={{ fontWeight: 700, color: '#263247', mb: 0.6, letterSpacing: 1.2 }}>
-              In Out Management System
+      {/* Main Content */}
+      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', py: 4, px: { xs: 2, sm: 4 } }}>
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            flexGrow: 1,
+            maxWidth: 600,
+            mx: 'auto'
+          }}
+        >
+          {/* Entry Form */}
+          <Paper
+            sx={{
+              p: { xs: 2, sm: 2.5 },
+              borderRadius: 3,
+              bgcolor: 'rgba(255, 255, 255, 0.85)',
+              boxShadow: '0 10px 30px rgba(2, 6, 23, 0.06)',
+              textAlign: 'center',
+              width: '100%'
+            }}
+          >
+            <Typography variant="h6" sx={{ mb: 1, fontWeight: 700, color: '#0f172a', letterSpacing: 0.2 }}>
+              Entry Management
             </Typography>
-            <Typography sx={{ color: '#7b7c7e', fontWeight: 500, fontSize: 18, mb: 2 }}>
+            <Typography variant="body2" sx={{ mb: 1, color: '#6b7280' }}>
               Central Library Main Gate
             </Typography>
-            <Typography variant="h6" sx={{ color: '#18bc9c', fontWeight: 900, letterSpacing: 1.6, mb: 1 }}>
+            <Typography variant="body2" sx={{ mb: 2, color: '#3b82f6', fontWeight: 700, letterSpacing: 1 }}>
               SCAN YOUR ID CARD
             </Typography>
-            <Typography sx={{ color: '#8d8fa3', mb: 2.5, fontSize: 14, fontWeight: 400 }}>
-              (Or enter your Register Number below)
+            <Typography variant="caption" sx={{ mb: 3, display: 'block', color: '#6b7280' }}>
+              Or enter your registration number below
             </Typography>
-
             <form onSubmit={handleSubmit}>
               <TextField
-                label="Register Number"
+                label="Registration Number"
                 value={regNumber}
                 onChange={e => setRegNumber(e.target.value)}
                 fullWidth
@@ -224,105 +269,90 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
-                      <QrCodeScannerIcon sx={{ color: '#95a5a6', fontSize: 28 }} />
+                      <QrCodeScannerIcon sx={{ color: '#9ca3af' }} />
                     </InputAdornment>
-                  ),
-                  sx: { fontSize: 19 }
+                  )
                 }}
-                sx={{ mb: 3, '& input': { textAlign: "center" } }}
-                inputProps={{ style: { fontWeight: 700, letterSpacing: 1.7, fontSize: 19 } }}
+                sx={{ mb: 2 }}
                 required
               />
-
               <Button
                 variant="contained"
-                color="primary"
                 type="submit"
                 fullWidth
                 disabled={isProcessing}
                 sx={{
-                  py: 1.2,
+                  py: 1.25,
                   fontWeight: 700,
-                  bgcolor: '#1e3a8a',
-                  fontSize: 18,
-                  letterSpacing: 1.2,
                   borderRadius: 2,
-                  boxShadow: 3,
-                  mt: 1
+                  bgcolor: '#1d4ed8',
+                  boxShadow: '0 8px 16px rgba(29,78,216,0.15)',
+                  '&:hover': { bgcolor: '#1e40af', boxShadow: '0 10px 18px rgba(30,64,175,0.2)' },
+                  '&:disabled': { bgcolor: '#9ca3af' }
                 }}
               >
                 {isProcessing ? 'Processing...' : 'Submit'}
               </Button>
             </form>
-
-            {/* Success Message Display */}
             {successMessage.show && (
-              <Box sx={{ 
-                mt: 4, 
-                p: 4, 
-                bgcolor: '#f8f9fa',
+              <Box sx={{
+                mt: 2.5,
+                p: 2,
                 borderRadius: 3,
-                border: '2px solid #e9ecef',
-                textAlign: 'center',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 1.25,
+                bgcolor: successMessage.type === 'entry' ? 'rgba(236, 253, 245, 0.95)' : 'rgba(254, 242, 242, 0.95)',
+                border: successMessage.type === 'entry' ? '1px solid #a7f3d0' : '1px solid #fecaca',
+                boxShadow: '0 12px 24px rgba(2,6,23,0.06)'
               }}>
-                <Typography variant="h4" sx={{ 
-                  color: '#1e3a8a',
-                  fontWeight: 800,
-                  mb: 2,
-                  fontSize: '2rem'
-                }}>
-                  {successMessage.type === 'entry' ? 'ENTRY SUCCESSFUL' : 'EXIT SUCCESSFUL'}
-                </Typography>
-                
-                <Typography variant="h5" sx={{ 
-                  fontWeight: 700, 
-                  mb: 2,
-                  color: '#2c3e50',
-                  fontSize: '1.5rem'
-                }}>
-                  {successMessage.userName}
-                </Typography>
-                
-                <Typography variant="h6" sx={{ 
-                  color: '#6c757d', 
-                  mb: 2,
-                  fontSize: '1.2rem',
-                  fontWeight: 500
-                }}>
-                  {successMessage.timestamp}
-                </Typography>
-                
-                {successMessage.type === 'exit' && successMessage.timeSpent && (
-                  <Box sx={{
-                    mt: 3,
-                    p: 2,
-                    bgcolor: '#e3f2fd',
-                    borderRadius: 2,
-                    border: '1px solid #bbdefb'
+                <Box sx={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'center', mb: 1 }}>
+                  <Typography variant="subtitle1" sx={{
+                    fontWeight: 900,
+                    letterSpacing: 2,
+                    color: successMessage.type === 'entry' ? '#047857' : '#b91c1c'
                   }}>
-                    <Typography variant="h6" sx={{ 
-                      color: '#1565c0', 
-                      fontWeight: 700,
-                      fontSize: '1.3rem'
-                    }}>
-                      Time Spent: {successMessage.timeSpent}
+                    {successMessage.type === 'entry' ? 'IN' : 'OUT'}
+                  </Typography>
+                </Box>
+                <Paper elevation={0} sx={{ p: 1.25, textAlign: 'left', bgcolor: 'transparent' }}>
+                  <Typography variant="caption" sx={{ color: '#6b7280' }}>Registration No.</Typography>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700, fontFamily: 'monospace', color: '#111827' }}>
+                    {successMessage.registrationNumber}
+                  </Typography>
+                </Paper>
+                <Paper elevation={0} sx={{ p: 1.25, textAlign: 'left', bgcolor: 'transparent' }}>
+                  <Typography variant="caption" sx={{ color: '#6b7280' }}>Name</Typography>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#111827' }}>
+                    {successMessage.userName}
+                  </Typography>
+                </Paper>
+                <Paper elevation={0} sx={{ p: 1.25, textAlign: 'left', bgcolor: 'transparent', gridColumn: '1 / -1' }}>
+                  <Typography variant="caption" sx={{ color: '#6b7280' }}>Timestamp</Typography>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#111827' }}>
+                    {successMessage.timestamp}
+                  </Typography>
+                </Paper>
+                {successMessage.type === 'exit' && successMessage.timeSpent && (
+                  <Paper elevation={0} sx={{ p: 1.25, textAlign: 'left', bgcolor: 'transparent', gridColumn: '1 / -1' }}>
+                    <Typography variant="caption" sx={{ color: '#6b7280' }}>Time Spent</Typography>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#111827' }}>
+                      {successMessage.timeSpent}
                     </Typography>
-                  </Box>
+                  </Paper>
                 )}
               </Box>
             )}
-
             {submitMsg && (
-              <Alert severity="warning" sx={{ mt: 2 }}>
+              <Alert severity="error" sx={{ mt: 2 }}>
                 {submitMsg}
               </Alert>
             )}
-          </Box>
+          </Paper>
         </Box>
       </Box>
 
-      {/* Return Password Dialog */}
+      {/* Return Dialog */}
       <Dialog open={showReturnDialog} onClose={() => setShowReturnDialog(false)}>
         <DialogTitle>Enter Password to Return</DialogTitle>
         <DialogContent>
@@ -333,21 +363,21 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
             value={returnPass}
             onChange={(e) => setReturnPass(e.target.value)}
             autoFocus
+            sx={{ mt: 1 }}
           />
-          {returnError && <Alert severity="error" sx={{ mt: 1 }}>{returnError}</Alert>}
+          {returnError && <Alert severity="error" sx={{ mt: 2 }}>{returnError}</Alert>}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowReturnDialog(false)}>Cancel</Button>
+          <Button onClick={() => setShowReturnDialog(false)} color="inherit">Cancel</Button>
           <Button onClick={handleReturnConfirm} variant="contained">Confirm</Button>
         </DialogActions>
       </Dialog>
 
-      {/* Snackbar for notifications */}
+      {/* Snackbar */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={6000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
-        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
       >
         <Alert
           onClose={() => setSnackbar({ ...snackbar, open: false })}
@@ -358,7 +388,8 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
         </Alert>
       </Snackbar>
     </Box>
-     );
- };
+  );
+};
 
 export default MainGateEntry;
+

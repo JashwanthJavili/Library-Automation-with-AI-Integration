@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "server": "node server/server.js",
     "server:dev": "nodemon server/server.js",
-    "seed": "node server/utils/seeder.js"
+    "seed": "node server/utils/seeder.js",
+    "sync:koha": "tsx syncKohaBorrowers.ts"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -30,6 +31,7 @@
     "jspdf-autotable": "^5.0.2",
     "mongoose": "^8.17.1",
     "morgan": "^1.10.0",
+    "mysql2": "^3.15.3",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "xlsx": "^0.18.5"
@@ -38,7 +40,7 @@
     "@eslint/js": "^9.33.0",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
-    "@vitejs/plugin-react": "^5.0.0",
+    "@vitejs/plugin-react": "^4.2.1",
     "eslint": "^9.33.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
@@ -46,6 +48,7 @@
     "nodemon": "^3.0.2",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.39.1",
-    "vite": "^7.1.2"
+    "vite": "^5.1.6",
+    "tsx": "^4.19.2"
   }
 }

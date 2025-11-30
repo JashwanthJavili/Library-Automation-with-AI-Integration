@@ -240,6 +240,36 @@ class ApiService {
     return this.request<{ books: Book[] }>('/books');
   }
 
+  // Koha borrower lookup (by cardnumber or userid)
+  async getKohaBorrower(query: string): Promise<ApiResponse<{ cardnumber: string; surname: string; sex: string; userid: string; branchcode: string; categorycode: string; email?: string }>> {
+    const params = new URLSearchParams({ q: query });
+    return this.request(`/koha/borrower?${params.toString()}`);
+  }
+
+  // Koha in/out logging to Mongo (inouts)
+  async createKohaInOut(payload: { id: string; entryType?: 'entry' | 'exit'; method?: 'manual_entry' | 'auto_scan' | 'id_card' | 'qr_code'; location?: string; purpose?: string; status?: string }): Promise<ApiResponse<{ inout: any }>> {
+    return this.request<{ inout: any }>(`/koha/inout`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  // Koha scan: toggle IN/OUT and write to MySQL gate_logs
+  async kohaScan(id: string): Promise<ApiResponse<{ action: 'IN' | 'OUT'; cardnumber: string; name: string; gender: string; branch: string; cc: string; userid?: string; email?: string }>> {
+    return this.request(`/koha/scan`, {
+      method: 'POST',
+      body: JSON.stringify({ id })
+    });
+  }
+
+  // Fetch gate_logs from MySQL
+  async getGateLogs(params?: { limit?: number; date?: string }): Promise<ApiResponse<{ logs: any[] }>> {
+    const qp = new URLSearchParams();
+    if (params?.limit) qp.append('limit', String(params.limit));
+    if (params?.date) qp.append('date', params.date);
+    return this.request(`/koha/gate-logs?${qp.toString()}`);
+  }
+
   // Health check
   async healthCheck(): Promise<ApiResponse> {
     try {

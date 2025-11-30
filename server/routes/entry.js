@@ -1,10 +1,32 @@
 import express from 'express';
+import mysql from 'mysql2/promise';
 import { body, validationResult } from 'express-validator';
 import Entry from '../models/Entry.js';
 import User from '../models/User.js';
-import { protect, authorize, checkLibraryStatus } from '../middleware/auth.js';
+import { protect, authorize } from '../middleware/auth.js';
 
 const router = express.Router();
+
+function getGateDbConfig() {
+  const useTLS = (process.env.GATE_DB_USE_TLS || '').toLowerCase() === 'true';
+  const cfg = {
+    host: process.env.GATE_MYSQL_HOST || process.env.MYSQL_HOST || 'localhost',
+    port: parseInt(process.env.GATE_MYSQL_PORT || process.env.MYSQL_PORT || '3306', 10),
+    user: process.env.GATE_MYSQL_USER || process.env.MYSQL_USER || 'root',
+    password: process.env.GATE_MYSQL_PASSWORD || process.env.MYSQL_PASSWORD || '',
+    database: process.env.GATE_MYSQL_DATABASE || 'library_gate_entry',
+    timezone: 'Z'
+  };
+  if (useTLS) {
+    cfg.ssl = {
+      ca: process.env.GATE_DB_TLS_CA_CERTIFICATE || process.env.DB_TLS_CA_CERTIFICATE,
+      cert: process.env.GATE_DB_TLS_CLIENT_CERTIFICATE || process.env.DB_TLS_CLIENT_CERTIFICATE,
+      key: process.env.GATE_DB_TLS_CLIENT_KEY || process.env.DB_TLS_CLIENT_KEY,
+      rejectUnauthorized: false
+    };
+  }
+  return cfg;
+}
 
 // @desc    Record entry into library
 // @route   POST /api/entry/enter
@@ -438,129 +460,125 @@ router.get('/status/:userId', protect, async (req, res) => {
 // @route   GET /api/entry/dashboard-stats
 // @access  Public (for main gate display)
 router.get('/dashboard-stats', async (req, res) => {
+  // Return dashboard stats computed from the MySQL `gate_logs` table when available.
+  // Fallback: preserve the existing Mongo-based analytics if MySQL connection fails.
+  let mysqlConn;
   try {
     const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+    mysqlConn = await mysql.createConnection(getGateDbConfig());
 
-    // Get current active entries with user details
-    const activeEntries = await Entry.find({
-      entryType: 'entry',
-      status: 'active'
-    }).populate('user', 'firstName lastName studentId department section gender role');
-
-    // Normalize gender values and compute robust counts
-    const normalizeGender = (raw) => {
-      if (!raw) return null;
-      const g = String(raw).trim().toLowerCase();
-      if (["male", "m", "boy", "boys"].includes(g)) return 'male';
-      if (["female", "f", "girl", "girls"].includes(g)) return 'female';
-      return null; // treat unknown as null, not counted toward total
-    };
-
-    let maleCount = 0;
-    let femaleCount = 0;
-    const departmentStats = {};
-
-    for (const entry of activeEntries) {
-      const norm = normalizeGender(entry.user?.gender);
-      if (norm === 'male') maleCount += 1;
-      else if (norm === 'female') femaleCount += 1;
-      const dept = (entry.user?.department || 'Unknown');
-      departmentStats[dept] = (departmentStats[dept] || 0) + 1;
-    }
-
-    // Total students equals sum of boys and girls only (as requested)
-    const totalStudents = maleCount + femaleCount;
-
-    // Get today's total entries
-    const todayEntries = await Entry.countDocuments({
-      entryType: 'entry',
-      timestamp: { $gte: todayStart, $lt: todayEnd }
-    });
-
-    // Get today's total exits
-    const todayExits = await Entry.countDocuments({
-      entryType: 'exit',
-      timestamp: { $gte: todayStart, $lt: todayEnd }
-    });
-
-    // Gender stats reported explicitly with normalized values
-    const genderStats = { male: maleCount, female: femaleCount };
-
-    // Calculate hourly distribution for today
-    const hourlyStats = await Entry.aggregate([
-      {
-        $match: {
-          entryType: 'entry',
-          timestamp: { $gte: todayStart, $lt: todayEnd }
-        }
-      },
-      {
-        $group: {
-          _id: { $hour: '$timestamp' },
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { _id: 1 } }
-    ]);
-
-    // Find peak hour
-    const peakHour = hourlyStats.reduce((max, hour) => 
-      hour.count > max.count ? hour : max, 
-      { _id: 0, count: 0 }
+    // total entries today (rows with entry_date = today)
+    const [totalRows] = await mysqlConn.execute(
+      `SELECT COUNT(*) AS totalEntries FROM gate_logs WHERE entry_date = CURDATE()`
     );
+    const totalEntriesToday = totalRows && totalRows[0] ? totalRows[0].totalEntries || 0 : 0;
 
-    // Calculate average session time for today's exits
-    const avgSessionTime = await Entry.aggregate([
-      {
-        $match: {
-          entryType: 'exit',
-          timestamp: { $gte: todayStart, $lt: todayEnd },
-          duration: { $exists: true, $gt: 0 }
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          avgDuration: { $avg: '$duration' }
-        }
-      }
-    ]);
+    // currently inside: count distinct cardnumbers whose latest record has status = 'IN'
+    const [insideRows] = await mysqlConn.execute(
+      `SELECT COUNT(*) AS currentlyInside FROM (
+         SELECT g.cardnumber, g.status FROM gate_logs g
+         WHERE g.sl = (
+           SELECT MAX(sl) FROM gate_logs g2 WHERE g2.cardnumber = g.cardnumber
+         )
+       ) t WHERE t.status = 'IN'`
+    );
+    const currentlyInside = insideRows && insideRows[0] ? insideRows[0].currentlyInside || 0 : 0;
 
+    // male/female currently inside (based on latest record per cardnumber)
+    const [maleInsideRows] = await mysqlConn.execute(
+      `SELECT COUNT(*) AS maleInside FROM (
+         SELECT g.cardnumber, g.gender, g.status FROM gate_logs g
+         WHERE g.sl = (
+           SELECT MAX(sl) FROM gate_logs g2 WHERE g2.cardnumber = g.cardnumber
+         )
+       ) t WHERE t.status = 'IN' AND UPPER(t.gender) = 'M'`
+    );
+    const [femaleInsideRows] = await mysqlConn.execute(
+      `SELECT COUNT(*) AS femaleInside FROM (
+         SELECT g.cardnumber, g.gender, g.status FROM gate_logs g
+         WHERE g.sl = (
+           SELECT MAX(sl) FROM gate_logs g2 WHERE g2.cardnumber = g.cardnumber
+         )
+       ) t WHERE t.status = 'IN' AND UPPER(t.gender) = 'F'`
+    );
+    const maleCount = maleInsideRows && maleInsideRows[0] ? maleInsideRows[0].maleInside || 0 : 0;
+    const femaleCount = femaleInsideRows && femaleInsideRows[0] ? femaleInsideRows[0].femaleInside || 0 : 0;
+
+    // Build response using the same shape the frontend expects (backwards compatible)
     res.json({
       success: true,
       data: {
         current: {
-          totalStudents,
+          totalStudents: currentlyInside,
           girls: femaleCount,
           boys: maleCount
         },
         today: {
-          totalEntries: todayEntries,
-          totalExits: todayExits,
-          netEntries: todayEntries - todayExits
+          totalEntries: totalEntriesToday,
+          totalExits: null,
+          netEntries: null
         },
         breakdown: {
-          departments: departmentStats,
-          gender: genderStats
+          departments: {},
+          gender: { male: maleCount, female: femaleCount }
         },
         analytics: {
-          peakHour: peakHour._id,
-          peakHourCount: peakHour.count,
-          avgSessionTime: avgSessionTime[0]?.avgDuration || 0,
-          hourlyDistribution: hourlyStats
+          peakHour: null,
+          peakHourCount: 0,
+          avgSessionTime: 0,
+          hourlyDistribution: []
         },
         lastUpdated: now
       }
     });
 
-  } catch (error) {
-    console.error('Get dashboard stats error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while fetching dashboard statistics'
-    });
+  } catch (mysqlErr) {
+    console.warn('MySQL dashboard stats failed, falling back to Mongo analytics:', mysqlErr?.message || mysqlErr);
+    // Fallback to existing Mongo-based computation
+    try {
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+
+      const activeEntries = await Entry.find({ entryType: 'entry', status: 'active' }).populate('user', 'firstName lastName studentId department section gender role');
+      const normalizeGender = (raw) => {
+        if (!raw) return null;
+        const g = String(raw).trim().toLowerCase();
+        if (["male", "m", "boy", "boys"].includes(g)) return 'male';
+        if (["female", "f", "girl", "girls"].includes(g)) return 'female';
+        return null;
+      };
+      let maleCount = 0; let femaleCount = 0; const departmentStats = {};
+      for (const entry of activeEntries) {
+        const norm = normalizeGender(entry.user?.gender);
+        if (norm === 'male') maleCount += 1;
+        else if (norm === 'female') femaleCount += 1;
+        const dept = (entry.user?.department || 'Unknown');
+        departmentStats[dept] = (departmentStats[dept] || 0) + 1;
+      }
+      const totalStudents = maleCount + femaleCount;
+      const todayEntries = await Entry.countDocuments({ entryType: 'entry', timestamp: { $gte: todayStart, $lt: todayEnd } });
+      const todayExits = await Entry.countDocuments({ entryType: 'exit', timestamp: { $gte: todayStart, $lt: todayEnd } });
+
+      res.json({
+        success: true,
+        data: {
+          current: { totalStudents, girls: femaleCount, boys: maleCount },
+          today: { totalEntries: todayEntries, totalExits: todayExits, netEntries: todayEntries - todayExits },
+          breakdown: { departments: departmentStats, gender: { male: maleCount, female: femaleCount } },
+          analytics: { peakHour: 0, peakHourCount: 0, avgSessionTime: 0, hourlyDistribution: [] },
+          lastUpdated: now
+        }
+      });
+
+    } catch (fallbackErr) {
+      console.error('Fallback Mongo analytics failed:', fallbackErr);
+      return res.status(500).json({ success: false, message: 'Server error while fetching dashboard statistics' });
+    }
+  } finally {
+    if (typeof mysqlConn?.end === 'function') {
+      try { await mysqlConn.end(); } catch {}
+    }
   }
 });
 

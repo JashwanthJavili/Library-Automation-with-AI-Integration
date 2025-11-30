@@ -116,125 +116,40 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
     return () => clearInterval(interval);
   }, []);
 
-  const formatTimeSpent = (minutes: number): string => {
-    if (!minutes || minutes < 1) {
-      const seconds = Math.round((minutes || 0) * 60);
-      return `${seconds}s`;
-    }
-    const hours = Math.floor(minutes / 60);
-    const mins = Math.floor(minutes % 60);
-    const secs = Math.round((minutes % 1) * 60);
-    if (hours > 0) {
-      return secs > 0 ? `${hours}h ${mins}m ${secs}s` : `${hours}h ${mins}m`;
-    }
-    return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
-  };
+  // formatTimeSpent removed (unused) to prevent linter warnings
 
-  // Handle form submission for entry or exit
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submitScan = async () => {
     if (!regNumber.trim() || isProcessing) return;
-    
     setIsProcessing(true);
     setSubmitMsg('');
-    
     try {
-      // Attempt to record entry
-      try {
-        const entryResponse = await apiService.recordEntry({
-          registrationNumber: regNumber.trim(),
-          method: 'manual_entry',
-          purpose: 'study',
-          location: 'main_gate'
+      // Use the MySQL-backed koha scan which toggles IN/OUT in gate_logs
+      const resp = await apiService.kohaScan(regNumber.trim());
+      if (resp.success) {
+        const d = resp.data;
+        const action = (d?.action === 'OUT') ? 'exit' : 'entry';
+        const timestamp = new Date().toLocaleString();
+
+        setSuccessMessage({
+          show: true,
+          type: action,
+          registrationNumber: d?.cardnumber || regNumber.trim(),
+          userName: d?.name || 'Unknown',
+          timeSpent: undefined,
+          timestamp
         });
-        
-        if (entryResponse.success) {
-          const user = entryResponse.data?.entry?.user;
-          const timestamp = new Date().toLocaleString();
-
-          setSuccessMessage({
-            show: true,
-            type: 'entry',
-            registrationNumber: user?.studentId || regNumber.trim(),
-            userName: `${user?.firstName} ${user?.lastName}`,
-            timeSpent: undefined,
-            timestamp
-          });
-          
-          setRegNumber('');
-          
-          // Refresh stats after successful entry
-          fetchStats();
-          
-          // Auto-hide success message after 2 seconds
-          setTimeout(() => {
-            setSuccessMessage(prev => ({ ...prev, show: false }));
-          }, 2000);
-          
-          return;
-        }
-      } catch (entryError: any) {
-        // If user is already inside, attempt exit instead
-        if (entryError.message?.includes('already inside')) {
-          const exitResponse = await apiService.recordExit({
-            registrationNumber: regNumber.trim(),
-            method: 'manual_entry',
-            location: 'main_gate'
-          });
-          
-          if (exitResponse.success) {
-            const exit = exitResponse.data?.exit;
-            const user = exit?.user;
-            let timeSpentStr = exit?.timeSpent as string | undefined;
-
-            if (!timeSpentStr) {
-              // Prefer explicit duration (assumed minutes), else compute from timestamps
-              if (typeof exit?.duration === 'number') {
-                timeSpentStr = formatTimeSpent(exit.duration);
-              } else if (exit?.entryTime && exit?.timestamp) {
-                const entryMs = new Date(exit.entryTime as any).getTime();
-                const exitMs = new Date(exit.timestamp as any).getTime();
-                const minutes = (exitMs - entryMs) / (1000 * 60);
-                timeSpentStr = formatTimeSpent(minutes);
-              } else {
-                timeSpentStr = '0s';
-              }
-            }
-
-            const timestamp = new Date().toLocaleString();
-
-            setSuccessMessage({
-              show: true,
-              type: 'exit',
-              registrationNumber: user?.studentId || regNumber.trim(),
-              userName: `${user?.firstName} ${user?.lastName}`,
-              timeSpent: timeSpentStr,
-              timestamp
-            });
-            
-            setRegNumber('');
-            
-            // Refresh stats after successful exit
-            fetchStats();
-            
-            // Auto-hide success message after 2 seconds
-            setTimeout(() => {
-              setSuccessMessage(prev => ({ ...prev, show: false }));
-            }, 2000);
-            
-            return;
-          }
-        } else {
-          throw entryError;
-        }
+        setRegNumber('');
+        // Refresh dashboard stats
+        fetchStats();
+        setTimeout(() => setSuccessMessage(prev => ({ ...prev, show: false })), 2000);
+      } else {
+        throw new Error(resp.message || 'Failed');
       }
     } catch (error: any) {
-      setSubmitMsg(error.message || 'Failed to process request. Please try again.');
-      setSnackbar({
-        open: true,
-        message: error.message || 'Failed to process request. Please try again.',
-        severity: 'error'
-      });
+      const msg = error.message || 'Failed to process request. Please try again.';
+      setSubmitMsg(msg);
+      const isCooldown = typeof msg === 'string' && msg.toLowerCase().includes('please wait');
+      setSnackbar({ open: true, message: msg, severity: isCooldown ? 'info' : 'error' });
     } finally {
       setIsProcessing(false);
     }
@@ -339,7 +254,7 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
             <Typography variant="body2" sx={{ mb: 3, display: 'block', color: '#6b7280' }}>
               Or enter your registration number below
             </Typography>
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={(e) => { e.preventDefault(); submitScan(); }}>
               <TextField
                 label="Registration Number"
                 value={regNumber}
@@ -372,7 +287,7 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
                   fontSize: '1.1rem'
                 }}
               >
-                {isProcessing ? 'Processing...' : 'Submit'}
+                {isProcessing ? 'Processing...' : 'Scan / Submit'}
               </Button>
             </form>
             {successMessage.show && (
@@ -424,7 +339,7 @@ const MainGateEntry: React.FC<{ onReturn: () => void }> = ({ onReturn }) => {
               </Box>
             )}
             {submitMsg && (
-              <Alert severity="error" sx={{ mt: 3 }}>
+              <Alert severity={submitMsg.toLowerCase().includes('please wait') ? 'info' : 'error'} sx={{ mt: 3 }}>
                 {submitMsg}
               </Alert>
             )}

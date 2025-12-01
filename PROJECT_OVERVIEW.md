@@ -2,20 +2,21 @@
 
 ## 🎯 Project Overview
 
-This is a comprehensive **Library Management System (LMS)** built for KARE (Kalasalingam Academy of Research and Education) with modern web technologies and a scalable backend architecture. The project is designed to automate library operations and provide a foundation for AI-powered features.
+This is a comprehensive **Library Management System (LMS)** built for KARE (Kalasalingam Academy of Research and Education) with modern web technologies, intelligent AI assistance, and a scalable backend architecture. The project automates library operations with **advanced analytics** and **AI-powered contextual help**.
 
 ## 🏗️ Architecture Overview
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Frontend      │    │   Backend       │    │   Database      │
-│   (React + TS)  │◄──►│   (Node.js)     │◄──►│   (MongoDB)     │
-│                 │    │                 │    │                 │
-│ • Login System  │    │ • REST API      │    │ • User Data     │
-│ • Dashboard     │    │ • Authentication│    │ • Book Catalog  │
-│ • Entry/Exit    │    │ • Entry Mgmt    │    │ • Entry Logs    │
-│ • Book Mgmt     │    │ • User Mgmt     │    │ • Analytics     │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Frontend      │    │   Backend       │    │   Databases     │    │   AI Services   │
+│   (React + TS)  │◄──►│   (Node.js)     │◄──►│   (MySQL+Mongo) │    │   (Gemini AI)   │
+│                 │    │                 │    │                 │    │                 │
+│ • Login System  │    │ • REST API      │    │ • User Data     │    │ • Chat Support  │
+│ • Dashboard     │    │ • Authentication│    │ • Gate Logs     │    │ • Role-Based    │
+│ • Gate Entry    │    │ • Gate Mgmt     │    │ • Borrowers     │    │ • Context-Aware │
+│ • Analytics     │    │ • AI Chat API   │    │ • Analytics     │    │ • Free Tier     │
+│ • AI Assistant  │    │ • User Mgmt     │    │ • Bookings      │    │                 │
+└─────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
 ## 📁 Project Structure
@@ -184,6 +185,16 @@ After running the seeder:
 - `POST /api/entry/exit` - Record exit
 - `GET /api/entry/active` - Active entries
 - `GET /api/entry/stats` - Statistics
+- `GET /api/entry/dashboard-stats` - Live dashboard metrics
+
+### Gate Management (KOHA Integration)
+- `POST /api/koha/scan` - Scan student ID (IN/OUT toggle)
+- `GET /api/koha/gate-logs` - Fetch gate entry logs
+- `GET /api/koha/borrower/:cardnumber` - Get borrower info
+
+### AI Chatbot
+- `POST /api/chat/message` - Send message to AI assistant
+- `GET /api/chat/suggestions` - Get contextual quick suggestions
 
 ### User Management
 - `GET /api/users` - All users (admin/librarian)
@@ -192,35 +203,78 @@ After running the seeder:
 ## 🚧 Development Status
 
 ### ✅ Completed
-- Complete frontend UI/UX
-- Backend server architecture
-- Database models and schemas
-- Authentication system
-- Entry/exit management
+- Complete frontend UI/UX with fullscreen layouts
+- Backend server architecture with ES modules
+- Database models and schemas (MySQL + MongoDB)
+- Authentication system with JWT
+- **Main Gate Entry/Exit system** with 10s cooldown
+- **Advanced Analytics Dashboard** with 19 columns, charts, filters
+- **AI-Powered Chatbot** with role-based assistance
 - API endpoints structure
+- Intelligent student ID parsing (batch/department detection)
+- Export system (XLSX, PDF, CSV)
+- Real-time statistics dashboard
 
 ### 🚧 In Development
-- Frontend-backend integration
-- Real-time data updates
+- Frontend-backend integration optimization
+- Real-time data updates via WebSockets
 - Advanced book management
-- Room booking system
+- Room booking approval workflow
 
 ### 🔮 Planned Features
-- AI-powered recommendations
-- Advanced analytics
-- Mobile app support
-- Third-party integrations
-- Real-time notifications
+- AI-powered book recommendations
+- Predictive analytics for library usage
+- Mobile app support (React Native)
+- Third-party integrations (KOHA sync)
+- Real-time push notifications
+- Email report scheduling
 
 ## 🔒 Security Features
 
 - **Input Validation**: All API inputs validated
 - **Authentication**: JWT-based secure authentication
-- **Authorization**: Role-based access control
+- **Authorization**: Role-based access control (RBAC)
 - **Rate Limiting**: API abuse prevention
 - **CORS Protection**: Cross-origin security
 - **Security Headers**: Helmet.js protection
 - **Password Security**: bcrypt hashing
+- **Environment Variables**: Sensitive data in .env
+
+## 🤖 AI Assistant Features
+
+### Intelligent Chatbot System
+The system includes an **AI-powered assistant** using Google's Gemini AI:
+
+#### Role-Based Intelligence
+- **Admin**: Full system guidance, analytics help, troubleshooting
+- **Librarian**: Gate operations, basic stats, scanning procedures
+- **Faculty**: Booking assistance, availability checks
+- **Student**: General library information
+
+#### Context-Aware Responses
+- Adapts to current page (Dashboard, Gate Entry, Analytics, Bookings)
+- Remembers conversation history (last 5 messages)
+- Provides quick suggestions based on role and location
+- Real-time typing indicators and smooth animations
+
+#### Technical Implementation
+- **API**: `/api/chat/message` (POST) and `/api/chat/suggestions` (GET)
+- **Model**: Google Gemini Pro (free tier)
+- **Features**: 
+  - Conversation memory
+  - Smart context building
+  - Error handling with fallbacks
+  - Optimized prompts for library domain
+
+#### UI/UX
+- Floating chat button (bottom-right)
+- Minimizable window
+- Beautiful gradient theme
+- Mobile-responsive
+- Avatar-based message distinction
+- Auto-scroll to latest message
+
+**See `AI_ASSISTANT_GUIDE.md` for complete documentation.**
 
 ## 📊 Database Schema
 

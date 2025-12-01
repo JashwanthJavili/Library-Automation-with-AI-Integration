@@ -6,13 +6,12 @@ import {
   Typography,
   Checkbox,
   FormControlLabel,
-  Alert,
   CircularProgress,
 } from '@mui/material';
 import { apiService } from '../services/api';
 
 interface LoginPageProps {
-  onLogin: (username: string, userData: any) => void;
+  onLogin: (userData: any) => void;
 }
 
 const IMAGE_URL = 'https://www.kalasalingam.ac.in/wp-content/uploads/2021/06/IMG_1793-scaled.jpg';
@@ -35,7 +34,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
       const response = await apiService.login({ username, password });
       if (response.success && response.data) {
         apiService.setToken(response.data.token);
-        onLogin(username, response.data.user);
+        onLogin(response.data.user);
       } else {
         setError(response.message || 'Login failed');
       }

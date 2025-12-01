@@ -15,6 +15,8 @@ import attendanceRoutes from './routes/attendance.js';
 import bookingRoutes from './routes/bookings.js';
 import noticeRoutes from './routes/notices.js';
 import kohaRoutes from './routes/koha.js';
+import libraryRoutes from './routes/library.js';
+import chatRoutes from './routes/chat.js';
 
 // Import configuration
 import { config } from '../config.js';
@@ -83,6 +85,8 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/notices', noticeRoutes);
 app.use('/api/koha', kohaRoutes);
+app.use('/api/library', libraryRoutes);
+app.use('/api/chat', chatRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

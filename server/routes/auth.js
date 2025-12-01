@@ -1,6 +1,7 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
-import User from '../models/User.js';
+import bcrypt from 'bcryptjs';
+import pool from '../mysql.js';
 import { protect, authorize, generateToken } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -81,45 +82,47 @@ router.post('/register', [
       phone
     } = req.body;
 
-    // Check if user already exists
-    const existingUser = await User.findOne({
-      $or: [{ username }, { email }, { studentId }]
-    });
-
-    if (existingUser) {
-      return res.status(400).json({
-        success: false,
-        message: 'User already exists with this username, email, or student ID'
-      });
+    // Check if user already exists in MySQL
+    const [existing] = await pool.execute(
+      'SELECT id FROM library_users WHERE username = ? OR email = ? LIMIT 1',
+      [username, email]
+    );
+    if (Array.isArray(existing) && existing.length) {
+      return res.status(400).json({ success: false, message: 'User already exists with this username or email' });
     }
 
-    // Create new user
-    const user = new User({
+    // Lookup role id
+    const [roleRows] = await pool.execute('SELECT id FROM roles WHERE name = ? LIMIT 1', [role]);
+    const roleRow = Array.isArray(roleRows) && roleRows.length ? roleRows[0] : null;
+    const roleId = roleRow ? roleRow.id : null;
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const fullName = `${firstName || ''} ${lastName || ''}`.trim();
+
+    const [result] = await pool.execute(
+      `INSERT INTO library_users (username, email, full_name, password_hash, role_id, department, phone, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
+      [username, email, fullName, passwordHash, roleId, department || null, phone || null]
+    );
+
+    const insertedId = result.insertId;
+    const token = generateToken(String(insertedId));
+
+    const userResponse = {
+      _id: String(insertedId),
+      id: insertedId,
       username,
       email,
-      password,
-      firstName,
-      lastName,
-      role,
-      studentId,
-      department,
-      phone
-    });
+      fullName,
+      department: department || null,
+      phone: phone || null,
+      role: role,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
 
-    await user.save();
-
-    // Generate token
-    const token = generateToken(user._id);
-
-    // Return user data (without password) and token
-    res.status(201).json({
-      success: true,
-      message: 'User registered successfully',
-      data: {
-        user: user.getPublicProfile(),
-        token
-      }
-    });
+    res.status(201).json({ success: true, message: 'User registered successfully', data: { user: userResponse, token } });
 
   } catch (error) {
     console.error('Registration error:', error);
@@ -155,40 +158,80 @@ router.post('/login', [
     }
 
     const { username, password } = req.body;
+      // Find user in MySQL
+      const [rows] = await pool.execute(
+        `SELECT lu.id, lu.username, lu.email, lu.full_name, lu.password_hash, lu.department, lu.phone, lu.is_active, r.name AS role, lu.created_at, lu.updated_at
+         FROM library_users lu
+         LEFT JOIN roles r ON lu.role_id = r.id
+         WHERE lu.username = ? OR lu.email = ? LIMIT 1`,
+        [username, username]
+      );
 
-    // Find user by credentials
-    const user = await User.findByCredentials(username, password);
+      const userRow = Array.isArray(rows) && rows.length ? rows[0] : null;
 
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
-      });
-    }
-
-    // Check if user is active
-    if (!user.isActive) {
-      return res.status(401).json({
-        success: false,
-        message: 'Account is deactivated. Please contact administrator.'
-      });
-    }
-
-    // Update last login
-    user.lastLogin = new Date();
-    await user.save();
-
-    // Generate token
-    const token = generateToken(user._id);
-
-    res.json({
-      success: true,
-      message: 'Login successful',
-      data: {
-        user: user.getPublicProfile(),
-        token
+      if (!userRow) {
+        return res.status(401).json({ success: false, message: 'Invalid credentials' });
       }
-    });
+
+      if (!userRow.is_active) {
+        return res.status(401).json({ success: false, message: 'Account is deactivated. Please contact administrator.' });
+      }
+
+      // Try bcrypt compare first (expected), but fall back to plain-text match for existing dev seeds
+      let match = false;
+      try {
+        match = await bcrypt.compare(password, userRow.password_hash);
+      } catch (e) {
+        console.warn('bcrypt compare failed, falling back to plain-text check');
+      }
+
+      // If bcrypt didn't match, allow plaintext match (dev only) and upgrade to bcrypt hash
+      if (!match) {
+        if (userRow.password_hash === password) {
+          // upgrade stored password to bcrypt
+          try {
+            const newHash = await bcrypt.hash(password, 12);
+            await pool.execute('UPDATE library_users SET password_hash = ?, updated_at = NOW() WHERE id = ?', [newHash, userRow.id]);
+            match = true;
+            console.log(`Upgraded plain password to bcrypt for user id=${userRow.id}`);
+          } catch (e) {
+            console.warn('Failed to upgrade plain password to bcrypt:', e.message || e);
+          }
+        }
+      }
+
+      if (!match) {
+        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      }
+
+      // Update last login - optional column; if you have last_login column, update it
+      try {
+        await pool.execute('UPDATE library_users SET updated_at = NOW() WHERE id = ?', [userRow.id]);
+      } catch (e) {
+        console.warn('Could not update last login:', e.message || e);
+      }
+
+      // Generate token using MySQL user id
+      const token = generateToken(String(userRow.id));
+
+      // Build user object to return
+      const userResponse = {
+        _id: String(userRow.id),
+        id: userRow.id,
+        username: userRow.username,
+        email: userRow.email,
+        fullName: userRow.full_name,
+        firstName: userRow.full_name ? userRow.full_name.split(' ')[0] : '',
+        lastName: userRow.full_name ? userRow.full_name.split(' ').slice(1).join(' ') : '',
+        department: userRow.department,
+        phone: userRow.phone,
+        role: userRow.role || 'faculty',
+        isActive: Boolean(userRow.is_active),
+        createdAt: userRow.created_at,
+        updatedAt: userRow.updated_at
+      };
+
+      res.json({ success: true, message: 'Login successful', data: { user: userResponse, token } });
 
   } catch (error) {
     console.error('Login error:', error);
@@ -207,97 +250,108 @@ router.post('/login', [
   }
 });
 
-// @desc    Get current user profile
+// @desc    Get current user profile (MySQL)
 // @route   GET /api/auth/me
 // @access  Private
 router.get('/me', protect, async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('-password');
-    
-    res.json({
-      success: true,
-      data: {
-        user: user.getPublicProfile()
-      }
-    });
+    // req.user is populated by protect middleware from MySQL
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: 'Not authenticated' });
+    }
+
+    // Return normalized profile
+    const userProfile = {
+      _id: req.user._id,
+      id: req.user.id,
+      username: req.user.username,
+      email: req.user.email,
+      fullName: req.user.fullName,
+      firstName: req.user.fullName ? req.user.fullName.split(' ')[0] : '',
+      lastName: req.user.fullName ? req.user.fullName.split(' ').slice(1).join(' ') : '',
+      department: req.user.department,
+      phone: req.user.phone,
+      role: req.user.role,
+      isActive: req.user.isActive,
+      createdAt: req.user.createdAt,
+      updatedAt: req.user.updatedAt
+    };
+
+    res.json({ success: true, data: { user: userProfile } });
   } catch (error) {
     console.error('Get profile error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while fetching profile'
-    });
+    res.status(500).json({ success: false, message: 'Server error while fetching profile' });
   }
 });
 
-// @desc    Update user profile
-// @route   PUT /api/auth/me
-// @access  Private
 router.put('/me', protect, [
-  body('firstName')
-    .optional()
-    .trim()
-    .isLength({ min: 2, max: 50 })
-    .withMessage('First name must be between 2 and 50 characters'),
-  
-  body('lastName')
-    .optional()
-    .trim()
-    .isLength({ min: 2, max: 50 })
-    .withMessage('Last name must be between 2 and 50 characters'),
-  
-  body('department')
-    .optional()
-    .trim()
-    .isLength({ min: 2, max: 100 })
-    .withMessage('Department must be between 2 and 100 characters'),
-  
-  body('phone')
-    .optional()
-    .matches(/^[\+]?[1-9][\d]{0,15}$/)
-    .withMessage('Please provide a valid phone number')
+  body('firstName').optional().trim().isLength({ min: 2, max: 50 }).withMessage('First name must be between 2 and 50 characters'),
+  body('lastName').optional().trim().isLength({ min: 2, max: 50 }).withMessage('Last name must be between 2 and 50 characters'),
+  body('department').optional().trim().isLength({ min: 2, max: 100 }).withMessage('Department must be between 2 and 100 characters'),
+  body('phone').optional().matches(/^[\+]?[1-9][\d]{0,15}$/).withMessage('Please provide a valid phone number')
 ], async (req, res) => {
   try {
-    // Check for validation errors
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
     }
 
-    const updates = req.body;
-    const allowedUpdates = ['firstName', 'lastName', 'department', 'phone'];
-    
-    // Filter out non-allowed updates
-    const filteredUpdates = Object.keys(updates)
-      .filter(key => allowedUpdates.includes(key))
-      .reduce((obj, key) => {
-        obj[key] = updates[key];
-        return obj;
-      }, {});
+    const { firstName, lastName, department, phone } = req.body;
+    // Build full_name if firstName/lastName provided
+    let fullName = req.user.fullName || null;
+    if (firstName || lastName) {
+      const parts = fullName ? fullName.split(' ') : [];
+      const currentFirst = parts.length ? parts[0] : '';
+      const currentLast = parts.length > 1 ? parts.slice(1).join(' ') : '';
+      fullName = `${firstName || currentFirst} ${lastName || currentLast}`.trim();
+    }
 
-    const user = await User.findByIdAndUpdate(
-      req.user._id,
-      filteredUpdates,
-      { new: true, runValidators: true }
-    ).select('-password');
+    // Update MySQL user
+    const updates = [];
+    const params = [];
+    if (fullName) { updates.push('full_name = ?'); params.push(fullName); }
+    if (department) { updates.push('department = ?'); params.push(department); }
+    if (phone) { updates.push('phone = ?'); params.push(phone); }
+    if (updates.length === 0) {
+      return res.status(400).json({ success: false, message: 'No valid fields to update' });
+    }
 
-    res.json({
-      success: true,
-      message: 'Profile updated successfully',
-      data: {
-        user: user.getPublicProfile()
-      }
-    });
+    params.push(req.user.id);
+    const sql = `UPDATE library_users SET ${updates.join(', ')}, updated_at = NOW() WHERE id = ?`;
+    await pool.execute(sql, params);
 
+    // Return updated profile
+    const [rows] = await pool.execute(
+      `SELECT lu.id, lu.username, lu.email, lu.full_name, lu.department, lu.phone, lu.is_active, r.name AS role, lu.created_at, lu.updated_at
+       FROM library_users lu
+       LEFT JOIN roles r ON lu.role_id = r.id
+       WHERE lu.id = ? LIMIT 1`,
+      [req.user.id]
+    );
+
+    const userRow = Array.isArray(rows) && rows.length ? rows[0] : null;
+    if (!userRow) return res.status(404).json({ success: false, message: 'User not found after update' });
+
+    const userProfile = {
+      _id: String(userRow.id),
+      id: userRow.id,
+      username: userRow.username,
+      email: userRow.email,
+      fullName: userRow.full_name,
+      firstName: userRow.full_name ? userRow.full_name.split(' ')[0] : '',
+      lastName: userRow.full_name ? userRow.full_name.split(' ').slice(1).join(' ') : '',
+      department: userRow.department,
+      phone: userRow.phone,
+      role: userRow.role,
+      isActive: Boolean(userRow.is_active),
+      createdAt: userRow.created_at,
+      updatedAt: userRow.updated_at
+    };
+
+    res.json({ success: true, message: 'Profile updated successfully', data: { user: userProfile } });
   } catch (error) {
     console.error('Profile update error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while updating profile'
-    });
+    res.status(500).json({ success: false, message: 'Server error while updating profile' });
   }
 });
 
@@ -328,26 +382,18 @@ router.put('/change-password', protect, [
 
     const { currentPassword, newPassword } = req.body;
 
-    // Get user with password
-    const user = await User.findById(req.user._id).select('+password');
+    // Fetch user password_hash from MySQL
+    const [rows] = await pool.execute('SELECT id, password_hash FROM library_users WHERE id = ? LIMIT 1', [req.user.id]);
+    const userRow = Array.isArray(rows) && rows.length ? rows[0] : null;
+    if (!userRow) return res.status(404).json({ success: false, message: 'User not found' });
 
-    // Check current password
-    const isMatch = await user.comparePassword(currentPassword);
-    if (!isMatch) {
-      return res.status(400).json({
-        success: false,
-        message: 'Current password is incorrect'
-      });
-    }
+    const match = await bcrypt.compare(currentPassword, userRow.password_hash);
+    if (!match) return res.status(400).json({ success: false, message: 'Current password is incorrect' });
 
-    // Update password
-    user.password = newPassword;
-    await user.save();
+    const newHash = await bcrypt.hash(newPassword, 12);
+    await pool.execute('UPDATE library_users SET password_hash = ?, updated_at = NOW() WHERE id = ?', [newHash, req.user.id]);
 
-    res.json({
-      success: true,
-      message: 'Password changed successfully'
-    });
+    res.json({ success: true, message: 'Password changed successfully' });
 
   } catch (error) {
     console.error('Password change error:', error);

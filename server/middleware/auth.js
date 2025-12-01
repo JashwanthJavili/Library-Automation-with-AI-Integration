@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
-import User from '../models/User.js';
+import bcrypt from 'bcryptjs';
+import pool from '../mysql.js';
 import { config } from '../../config.js';
 
 // Middleware to protect routes
@@ -22,28 +23,50 @@ export const protect = async (req, res, next) => {
     try {
       // Verify token
       const decoded = jwt.verify(token, config.JWT_SECRET);
-      
-      // Get user from token
-      const user = await User.findById(decoded.id).select('-password');
-      
-      if (!user) {
+
+      // Get user from MySQL (library_users)
+      const [rows] = await pool.execute(
+        `SELECT lu.id, lu.username, lu.email, lu.full_name, lu.department, lu.phone, lu.is_active, lu.created_at, lu.updated_at, r.name AS role
+         FROM library_users lu
+         LEFT JOIN roles r ON lu.role_id = r.id
+         WHERE lu.id = ? LIMIT 1`,
+        [decoded.id]
+      );
+
+      const userRow = Array.isArray(rows) && rows.length ? rows[0] : null;
+
+      if (!userRow) {
         return res.status(401).json({
           success: false,
           message: 'Token is not valid. User not found.'
         });
       }
 
-      if (!user.isActive) {
+      if (!userRow.is_active) {
         return res.status(401).json({
           success: false,
           message: 'User account is deactivated.'
         });
       }
 
-      // Add user to request object
-      req.user = user;
+      // Map MySQL row to expected user object shape
+      req.user = {
+        _id: String(userRow.id),
+        id: userRow.id,
+        username: userRow.username,
+        email: userRow.email,
+        fullName: userRow.full_name,
+        department: userRow.department,
+        phone: userRow.phone,
+        role: userRow.role || 'faculty',
+        isActive: Boolean(userRow.is_active),
+        createdAt: userRow.created_at,
+        updatedAt: userRow.updated_at
+      };
+
       next();
     } catch (error) {
+      console.error('Auth token verification error:', error);
       return res.status(401).json({
         success: false,
         message: 'Token is not valid.'
@@ -68,10 +91,13 @@ export const authorize = (...roles) => {
       });
     }
 
-    if (!roles.includes(req.user.role)) {
+    // normalize role names
+    const userRole = req.user.role;
+
+    if (!roles.includes(userRole)) {
       return res.status(403).json({
         success: false,
-        message: `User role '${req.user.role}' is not authorized to access this route.`
+        message: `User role '${userRole}' is not authorized to access this route.`
       });
     }
 
@@ -127,10 +153,33 @@ export const verifyTokenOptional = async (req, res, next) => {
     if (token) {
       try {
         const decoded = jwt.verify(token, config.JWT_SECRET);
-        const user = await User.findById(decoded.id).select('-password');
-        
-        if (user && user.isActive) {
-          req.user = user;
+        // Load user from MySQL like protect, but don't throw on failure
+        try {
+          const [rows] = await pool.execute(
+            `SELECT lu.id, lu.username, lu.email, lu.full_name, lu.department, lu.phone, lu.is_active, lu.created_at, lu.updated_at, r.name AS role
+             FROM library_users lu
+             LEFT JOIN roles r ON lu.role_id = r.id
+             WHERE lu.id = ? LIMIT 1`,
+            [decoded.id]
+          );
+          const userRow = Array.isArray(rows) && rows.length ? rows[0] : null;
+          if (userRow && userRow.is_active) {
+            req.user = {
+              _id: String(userRow.id),
+              id: userRow.id,
+              username: userRow.username,
+              email: userRow.email,
+              fullName: userRow.full_name,
+              department: userRow.department,
+              phone: userRow.phone,
+              role: userRow.role || 'faculty',
+              isActive: Boolean(userRow.is_active),
+              createdAt: userRow.created_at,
+              updatedAt: userRow.updated_at
+            };
+          }
+        } catch (e) {
+          console.log('Optional auth: failed to load MySQL user', e.message || e);
         }
       } catch (error) {
         // Token is invalid, but we don't throw error

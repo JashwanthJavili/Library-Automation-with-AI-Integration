@@ -12,14 +12,8 @@ import {
 } from '@mui/material';
 import { Grid } from '@mui/material';
 import LoginIcon from '@mui/icons-material/Login';
-import SearchIcon from '@mui/icons-material/Search';
-import AssignmentReturnIcon from '@mui/icons-material/AssignmentReturn';
-import PeopleAltIcon from '@mui/icons-material/PeopleAlt';
-import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import MeetingRoomIcon from '@mui/icons-material/MeetingRoom';
-import NotificationsIcon from '@mui/icons-material/Notifications';
 import BarChartIcon from '@mui/icons-material/BarChart';
-import SettingsIcon from '@mui/icons-material/Settings';
 
 
 import type { User } from '../services/api';
@@ -32,27 +26,40 @@ interface DashboardProps {
 
 const LOGO_URL = '/src/assets/Kare_Logo.png';
 
-const categories = [
-  {
-    title: 'Main Gate Entry/Exit',
-    icon: <LoginIcon sx={{ fontSize: 48, color: '#1e3a8a' }} />,
-    description: 'Monitor and log student entry/exit in real-time.',
-    active: true
-  },
+const buildCategories = (role?: string) => {
+  const isAdmin = role === 'admin';
+  const isLibrarian = role === 'librarian';
+  const isFaculty = role === 'faculty';
 
-  {
-    title: 'Hall/Room Booking',
-    icon: <MeetingRoomIcon sx={{ fontSize: 48, color: '#4dabf7' }} />,
-    description: 'Reserve halls/rooms for study or events.',
-    active: false
-  },
-  {
-    title: 'Analytics & Reports',
-    icon: <BarChartIcon sx={{ fontSize: 48, color: '#228be6' }} />,
-    description: 'Visualize library usage and generate reports.',
-    active: true
-  }
-];
+  return [
+    {
+      title: 'Main Gate Entry/Exit',
+      icon: <LoginIcon sx={{ fontSize: 48, color: '#1e3a8a' }} />,
+      description: 'Monitor and log student entry/exit in real-time.',
+      active: isAdmin || isLibrarian
+    },
+    {
+      title: 'Hall/Room Booking',
+      icon: <MeetingRoomIcon sx={{ fontSize: 48, color: '#4dabf7' }} />,
+      description: 'Reserve halls/rooms for study or events.',
+      active: isAdmin || isFaculty
+    },
+    {
+      title: 'Analytics & Reports',
+      icon: <BarChartIcon sx={{ fontSize: 48, color: '#228be6' }} />,
+      description: 'Visualize library usage and generate reports.',
+      active: isAdmin
+    }
+    ,
+    // Admin-only management card
+    ...(isAdmin ? [{
+      title: 'Manage Bookings',
+      icon: <MeetingRoomIcon sx={{ fontSize: 48, color: '#16a34a' }} />,
+      description: 'Approve and manage hall booking requests.',
+      active: true
+    }] : [])
+  ];
+};
 
 const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onCategoryClick }) => {
   return (
@@ -176,7 +183,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onCategoryClick }
             alignItems: 'center'
           }}
         >
-          {categories.map((cat, i) => (
+          {(user ? buildCategories(user.role) : buildCategories()).map((cat) => (
             <Grid key={cat.title}>
               <Card
                 sx={{

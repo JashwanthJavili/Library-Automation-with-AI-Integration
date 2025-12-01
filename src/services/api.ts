@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = 'http://localhost:5001/api';
 
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -280,6 +280,38 @@ class ApiService {
       console.error('Health check failed:', error);
       throw error;
     }
+  }
+
+  // Library halls & bookings
+  async getHalls(): Promise<ApiResponse<{ halls: any[] }>> {
+    return this.request<{ halls: any[] }>(`/library/halls`);
+  }
+
+  // Create a hall booking. Backend accepts purpose_title and purpose_description (stored as JSON).
+  async createBooking(payload: { hall_id: number; start_datetime: string; end_datetime: string; num_students?: number; purpose_title?: string; purpose_description?: string }): Promise<ApiResponse<{ booking: any }>> {
+    return this.request<{ booking: any }>(`/library/bookings`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async getBookings(params?: { status?: string; mine?: boolean; hall_id?: number }): Promise<ApiResponse<{ bookings: any[] }>> {
+    const qp = new URLSearchParams();
+    if (params?.status) qp.append('status', params.status);
+    if (params?.mine) qp.append('mine', String(params.mine));
+    if (params?.hall_id) qp.append('hall_id', String(params.hall_id));
+    return this.request<{ bookings: any[] }>(`/library/bookings?${qp.toString()}`);
+  }
+
+  async approveBooking(id: number, action: 'approve' | 'reject', comment?: string): Promise<ApiResponse> {
+    return this.request(`/library/bookings/${id}/approve`, {
+      method: 'PUT',
+      body: JSON.stringify({ action, comment })
+    });
+  }
+
+  async cancelBooking(id: number): Promise<ApiResponse> {
+    return this.request(`/library/bookings/${id}/cancel`, { method: 'PUT' });
   }
 }
 
